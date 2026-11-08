@@ -7,7 +7,7 @@
       "daily_checkin": { "version": "pending-profile-1", "enabled": false, "opening": "Begin with a warm hello and ask about her day.", "questions": [] }
     },
     {
-      "resident_id": "daniel",
+      "resident_id": "robert",
       "preferred_name": null,
       "conditions": null,
       "daily_checkin": { "version": "pending-profile-2", "enabled": false, "opening": "Begin with a warm hello and ask about their day.", "questions": [] }

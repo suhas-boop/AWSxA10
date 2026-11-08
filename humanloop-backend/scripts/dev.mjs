@@ -18,7 +18,7 @@ if (identity.status !== 0) process.exit(identity.status || 1);
 
 const processes = [
   spawn(process.execPath, ['--watch', '--env-file-if-exists=.env', 'server/care/index.mjs'], { stdio: 'inherit' }),
-  spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1'], { stdio: 'inherit' }),
+  spawn(process.execPath, ['../humanloop/node_modules/vite/bin/vite.js', '../humanloop', '--host', '127.0.0.1'], { stdio: 'inherit' }),
 ];
 let stopping = false;
 function stop(code = 0) {

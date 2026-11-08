@@ -1,6 +1,6 @@
-# HumanLoop senior voice integration
+# HumanLoop: a companion with an identity
 
-The `humanloop-backend` branch combines the committed HumanLoop senior voice screen in [`humanloop/`](humanloop/README.md) with the authenticated Nova 2 Sonic pipeline in [`humanloop-backend/`](humanloop-backend/README.md). Resident sign-in opens directly to the animated voice companion. The nurse/care-team view is deferred. The two patient profiles and their disease-specific daily question sets can be populated using the backend profile template.
+The `humanloop-backend` branch combines the committed HumanLoop senior voice screen in [`humanloop/`](humanloop/README.md) with the authenticated Nova 2 Sonic pipeline in [`humanloop-backend/`](humanloop-backend/README.md). Resident sign-in opens directly to the animated voice companion. The staff portal now includes an assigned-caregiver inbox, resident details, and an administrator view for companion identity, permissions and live access decisions. The original AgenticPrint core enforces the voice tools through a private backend bridge. Maggie and Bob have supplied fictional heart-failure profiles, disease-specific check-in questions and simulated alert paths; see [demo scenarios](humanloop-backend/config/DEMO-SCENARIOS.md). Tap the companion to start or stop voice; the bottom control panel is removed.
 
 See [`humanloop/README.md`](humanloop/README.md) for the integrated build/start commands. The earlier HospicePrint application remains below and in its existing directories.
 

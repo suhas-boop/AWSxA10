@@ -1,4 +1,5 @@
 import { dailyPlanContext } from './daily-checkin.mjs';
+import { hasHeartFailureDemo, heartFailureGuidance, heartFailureResponse, remainingHeartFailurePlan, weightChange, HF_REFERENCE } from './heart-failure.mjs';
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import Ajv from 'ajv';
 import { RunLocks, Conflict } from './store.mjs';
@@ -16,7 +17,7 @@ const objectSchema = (properties, required = Object.keys(properties)) => ({ type
 const string = { type: 'string', minLength: 1, maxLength: 100 };
 export const toolDefinitions = [
   { name: 'get_checkin_context', description: 'Read only the bound resident’s permitted context, current observations, and the next approved question. Consult before responding.', schema: objectSchema({}) },
-  { name: 'propose_follow_up', description: 'Prepare a care-team handoff for a confirmed incident. The resident must review and confirm it in the app.', schema: objectSchema({ incident_id: string, assistance: { type: 'string', minLength: 1, maxLength: 500 } }) },
+  { name: 'propose_follow_up', description: 'Prepare a care-team handoff for a confirmed incident. Normally requires resident review in the app. For an explicitly configured synthetic heart-failure care plan only, deliver or update a SIMULATED alert and return a receipt; never makes real calls.', schema: objectSchema({ incident_id: string, assistance: { type: 'string', minLength: 1, maxLength: 500 } }) },
   { name: 'create_review_task', description: 'Create an assigned task using a server-issued, single-use human confirmation. Never invent confirmation identifiers.', schema: objectSchema({ draft_id: string, confirmation_id: string, request_id: string }) },
   { name: 'get_review_status', description: 'Read a bound resident’s task acknowledgment and the next step entered by an assigned human.', schema: objectSchema({ task_id: string }) },
 ];
@@ -46,20 +47,21 @@ export class CareService {
     if (active && (run.state !== 'ACTIVE' || run.leaseUntil <= this.clock() || run.expiresAt <= this.clock())) throw new CareError('RUN_STOPPED');
     return { member, run };
   }
-  async startRun(principal, consent) {
+  async startRun(principal, consent, workflow = 'clinical') {
+    if (!['social', 'clinical'].includes(workflow)) throw new CareError('TOOL_NOT_ALLOWED');
     if (consent !== true) throw new CareError('CONFIRMATION_REQUIRED', 400);
     const member = await this.residentMember(principal);
     return this.locks.with(`resident:${member.residentId}`, async () => {
       const previous = (await this.store.query(residentPK(member.residentId), 'RUN#')).filter(r => r.state === 'ACTIVE');
       for (const run of previous) await this.stopRun(principal, run.id);
-      const token = await this.machineToken(); await this.verifyMachine(token, 'get_checkin_context');
+      if (workflow === 'clinical') { const token = await this.machineToken(); await this.verifyMachine(token, 'get_checkin_context'); }
       const runId = id('run'), pk = residentPK(member.residentId), consentId = id('consent');
-      const run = { pk, sk: `RUN#${runId}`, id: runId, type: 'AgentRun', version: 1, actor: member.subject, agent_subject: this.machineClientId,
+      const run = { pk, sk: `RUN#${runId}`, id: runId, workflow, type: 'AgentRun', version: 1, actor: member.subject, agent_subject: this.machineClientId,
         residentId: member.residentId, alias: member.name, device_id: id('device'), consent_ref: consentId, state: 'ACTIVE', createdAt: utc(),
         login_jti: principal.jti || null, human_expires_at: principal.exp * 1000,
         leaseUntil: this.clock() + 8000, expiresAt: this.clock() + 30 * 60000, incidentId: null, detector: 'unavailable', analysis: 'typed-only' };
-      const grants = TOOL_NAMES.map(tool => ({ pk, sk: `GRANT#${runId}#${tool}`, id: id('grant'), run_id: runId, tool, resource_scope: member.residentId, version: 1, expiresAt: run.expiresAt, revokedAt: null }));
-      const consentRow = { pk, sk: `CONSENT#${consentId}`, id: consentId, actor: member.subject, active: true, version: 1, recordedAt: utc(), details: 'Visible check-in; local sound analysis; review before sharing; no retained raw audio.' };
+      const grants = (workflow === 'clinical' ? TOOL_NAMES : []).map(tool => ({ pk, sk: `GRANT#${runId}#${tool}`, id: id('grant'), run_id: runId, tool, resource_scope: member.residentId, version: 1, expiresAt: run.expiresAt, revokedAt: null }));
+      const consentRow = { pk, sk: `CONSENT#${consentId}`, id: consentId, actor: member.subject, active: true, version: 1, recordedAt: utc(), details: workflow === 'social' ? 'Resident starts visible everyday voice conversation. Only explicit help requests are shared under recorded demo consent. No sound analysis or clinical access.' : 'Resident starts visible check-in with local sound analysis. Ordinary sharing requires review. Explicit fictional demo care plans may create simulated alerts; no external calls or notifications. No retained raw audio.' };
       await this.store.transact([check(member, { equals: { active: true } }), put(run), put(consentRow), ...grants.map(g => put(g)), put({ ...this.adminRun(run), pk: orgPK, sk: `RUN#${runId}` })]);
       this.bindings.set(runId, { pk, residentId: member.residentId, capability: randomBytes(32).toString('hex') });
       return run;
@@ -138,6 +140,7 @@ export class CareService {
     const run = await this.store.get(binding.pk, `RUN#${runId}`);
     if (!run || run.agent_subject !== this.machineClientId || run.state !== 'ACTIVE' || run.leaseUntil <= this.clock() || run.expiresAt <= this.clock()) throw new CareError('RUN_STOPPED');
     if (run.human_expires_at <= this.clock()) throw new CareError('AUTH_INVALID');
+    if (run.workflow === 'social') throw new CareError('TOOL_NOT_ALLOWED');
     const [login, member, grant, consent] = await Promise.all([
       run.login_jti ? this.store.get(orgPK, `LOGIN#${run.login_jti}`) : null,
       this.store.get(orgPK, `MEMBER#${run.actor}`),
@@ -158,6 +161,7 @@ export class CareService {
         if (!validators.has(tool)) throw new CareError('TOOL_NOT_ALLOWED');
         if (!validators.get(tool)(args)) throw new CareError('RESIDENT_SCOPE_DENIED', 400);
         state = await this.protectedState(runId, tool, token, capability);
+        if (this.authorizeAgent) { const decision = await this.authorizeAgent(state, tool, args); if (!decision.allowed) throw new CareError('TOOL_NOT_ALLOWED'); state.agentGuards = decision.guards; }
         await this.audit(runId, tool, args, 'EXECUTING', null, state.grant.version, tool.startsWith('get_'));
         let result;
         if (tool === 'get_checkin_context') result = await this.context(state);
@@ -166,15 +170,17 @@ export class CareService {
         if (tool === 'get_review_status') {
           const task = await this.store.get(state.run.pk, `TASK#${args.task_id}`);
           if (!task) throw new CareError('RESIDENT_SCOPE_DENIED');
-          result = { task_id: task.id, status: task.status, owner: task.owner_name, next_step: task.next_step || null, acknowledged_by: task.acknowledged_by || null };
+          result = { task_id: task.id, status: task.status, owner: task.owner_name, next_step: task.next_step || null, acknowledged_by: task.acknowledged_by || null,
+            simulation: !!task.simulation, delivery_status: task.delivery_status || null, external_contact: task.simulation ? false : null };
         }
+        if (tool.startsWith('get_')) await this.store.transact(this.guardChecks(state));
         await this.audit(runId, tool, args, 'SUCCEEDED', null, state.grant.version, true);
         return { ok: true, ...result };
       } catch (error) {
         const reason = error instanceof CareError ? error.code : error instanceof Conflict ? 'GRANT_REVOKED' : 'EXECUTION_FAILED';
-        const uncertain = !(error instanceof CareError || error instanceof Conflict) && tool === 'create_review_task';
+        const uncertain = !(error instanceof CareError || error instanceof Conflict) && ['create_review_task', 'propose_follow_up'].includes(tool);
         await this.audit(runId, tool, args, uncertain ? 'UNKNOWN' : 'DENIED', reason, state?.grant.version, uncertain).catch(() => {});
-        return { ok: false, code: reason, status: uncertain ? 'UNKNOWN' : 'DENIED', ...(uncertain ? { reconcile_request_id: args.request_id } : {}) };
+        return { ok: false, code: reason, status: uncertain ? 'UNKNOWN' : 'DENIED', ...(uncertain && args.request_id ? { reconcile_request_id: args.request_id } : {}) };
       }
     });
   }
@@ -188,7 +194,7 @@ export class CareService {
     let incident = initialIncident;
     let evidence = incident ? (await Promise.all(incident.evidence_ids.map(eid => this.store.get(run.pk, `EVIDENCE#${eid}`)))).filter(Boolean) : [];
     const stale = !record?.verified_at || this.clock() - Date.parse(record.verified_at) > 30 * 86400000;
-    if (record && incident && !evidence.some(e => e.type === 'recorded')) {
+    if (record && incident && incident.topic !== 'heart-failure' && !evidence.some(e => e.type === 'recorded')) {
       const recorded = { pk: run.pk, sk: `EVIDENCE#record_${incident.id}`, id: `record_${incident.id}`, type: 'recorded', version: 1,
         statement: stale ? 'Clinical context is stale; current conditions and medications are unknown.' : incident.topic === 'head-injury' ? `Recorded medication context: ${record.medications.join(', ') || 'unknown'}.` : incident.topic === 'cough' ? `Recorded condition context: ${record.conditions.join(', ') || 'unknown'}.` : 'Synthetic care-team assignment on file.',
         source_ref: record.source_ref, createdAt: utc(), effective_at: record.effective_at, verified_at: record.verified_at, verification: stale ? 'Stale: treat as unknown' : 'Synthetic record; not a patient statement', supports_ids: [] };
@@ -198,6 +204,25 @@ export class CareService {
     }
     const awaitingControls = incident?.clarification_needed && incident.clarification_attempts >= 2;
     const dailyCheckin = dailyPlanContext(record);
+    if (hasHeartFailureDemo(record)) {
+      const hf = incident?.topic === 'heart-failure';
+      const alertTask = hf && incident.alert_receipt ? await this.store.get(run.pk, `TASK#${incident.alert_receipt.task_id}`) : null;
+      if (!incident || hf) return {
+        response_contract: heartFailureResponse(record, incident, alertTask ? incident.alert_receipt : null),
+        resident: record.preferred_name || run.alias,
+        daily_checkin: remainingHeartFailurePlan(dailyCheckin, incident?.findings),
+        context: { conditions: stale ? 'UNKNOWN: stale record' : record.conditions, medications: stale ? 'UNKNOWN: stale record' : record.medications,
+          patient_profile: stale ? null : record.patient_profile, medication_history: stale ? [] : record.medication_history || [], measurements: stale ? [] : record.measurements || [],
+          source_ref: record.source_ref, stale, synthetic: true },
+        incident: incident ? { id: incident.id, phase: incident.phase, route: incident.route, findings: incident.findings, protocol_version: record.demo_care_plan.id } : null,
+        evidence: evidence.filter(e => e.type === 'reported' && !e.superseded).map(({ id, statement, source_ref, finding_keys, utterance_context }) => ({ id, type: 'reported', statement, source_ref, finding_keys, utterance_context })),
+        weight_change: stale ? null : weightChange(record, this.clock()),
+        alert: alertTask ? { ...incident.alert_receipt, acknowledged_by: alertTask.acknowledged_by, task_status: alertTask.status, next_step: alertTask.next_step, assessment_status: alertTask.status === 'RESOLVED' ? 'REVIEW_RECORDED_BY_NURSE' : 'PENDING' } : null, alert_pending: !!incident?.alert_pending,
+        question_mode: hf && incident.route !== 'clarify' ? 'heart_failure_checkin' : 'daily_checkin', next_question: null,
+        guidance: hf ? heartFailureGuidance(incident.route) : null,
+        instruction: 'Use the supplied profile, baseline and conversation to ask only unanswered questions, one at a time. A baseline is historical, not evidence of today\'s symptoms. Lisinopril and diuretic doses are not supplied; staff manage medication. For a non-emergency cough and intent to skip medication, empathize and advise against changing it independently; ask the nurse/prescriber to review. A dry cough can occur with lisinopril, but its cause here is UNCONFIRMED. For sudden lip/tongue swelling or severe breathing trouble, emergency help takes priority over medication counseling; do not instruct continued dosing or give dose decisions. Never change a diuretic dose or recommend extra fluids. Never infer cough cause. The care plan automatically attempts a SIMULATED alert for reported changes. If alert_pending is true, call propose_follow_up; never claim delivery until a successful SIMULATED_DELIVERED receipt. Keep routine questions short for a new cough; stop routine questions for prompt-assessment or emergency. Never wait for several symptoms. Any spoken weight remains reported, not measured. Never invent nurse acknowledgment or arrival. All dispatch and notification is simulated.',
+      };
+    }
     const questionMode = awaitingControls ? 'answer_controls' : !incident || ['dismissed', 'handed-off'].includes(incident.phase) ? (dailyCheckin.configured ? 'daily_checkin' : 'conversation') : 'approved_question';
     return { resident: record?.preferred_name || run.alias, daily_checkin: dailyCheckin, context: record ? { conditions: stale ? 'UNKNOWN: stale record' : record.conditions, medications: stale ? 'UNKNOWN: stale record' : record.medications,
       source: record.source, verified_at: record.verified_at, source_ref: record.source_ref, stale, synthetic: true } : { status: 'UNKNOWN: context unavailable' },
@@ -214,13 +239,14 @@ export class CareService {
         + 'Do not diagnose or recommend medication changes. A draft requires a separate human confirmation button. Tool failure is unknown context, never proof of absence.' };
   }
   guardChecks(state) {
-    return [check(state.run, { equals: { state: 'ACTIVE' }, greater: { leaseUntil: this.clock(), expiresAt: this.clock() } }),
+    return [...(state.agentGuards || []), check(state.run, { equals: { state: 'ACTIVE' }, greater: { leaseUntil: this.clock(), expiresAt: this.clock() } }),
       check(state.grant, { equals: { revokedAt: null }, greater: { expiresAt: this.clock() } }), check(state.consent, { equals: { active: true } }), check(state.member, { equals: { active: true } }),
       ...(state.login ? [check(state.login, { equals: { active: true } })] : [])];
   }
   async propose(state, args) {
     const incident = await this.store.get(state.run.pk, `INCIDENT#${args.incident_id}`);
     if (!incident || incident.run_id !== state.run.id) throw new CareError('RESIDENT_SCOPE_DENIED');
+    if (incident.topic === 'heart-failure') return this.deliverDemoAlert(state, incident);
     if (incident.state !== 'CONFIRMED_CONCERN' || !['ready', 'emergency'].includes(incident.phase)) throw new CareError('CONFIRMATION_REQUIRED');
     const existing = (await this.store.query(state.run.pk, 'DRAFT#')).find(d => d.incident_id === incident.id && d.valid && d.incident_version === incident.version);
     if (existing) return { draft: this.publicDraft(existing) };
@@ -238,6 +264,46 @@ export class CareService {
     draft.sk = `DRAFT#${draft.id}`;
     await this.store.transact([...this.guardChecks(state), check(incident), put(draft)]);
     return { draft: this.publicDraft(draft) };
+  }
+  async deliverDemoAlert(state, incident) {
+    const { run } = state;
+    const record = await this.store.get(run.pk, 'CONTEXT');
+    if (!hasHeartFailureDemo(record) || !['clinical-review', 'prompt-assessment', 'emergency'].includes(incident.route)) throw new CareError('CONFIRMATION_REQUIRED');
+    const members = await this.store.query(orgPK, 'MEMBER#');
+    const owner = members.find(m => m.username === record.assignedNurse && m.role === 'nurse' && m.active && m.assignments.includes(run.residentId));
+    if (!owner) throw new CareError('CONTEXT_UNAVAILABLE');
+    const evidence = (await Promise.all(incident.evidence_ids.map(eid => this.store.get(run.pk, `EVIDENCE#${eid}`)))).filter(Boolean);
+    const seen = new Set();
+    const reported = evidence.filter(e => e.type === 'reported' && e.clinical_relevance && !e.superseded && !seen.has(e.statement) && seen.add(e.statement))
+      .map(e => ({ id: e.id, quote: e.utterance_context || e.statement, segment_quote: e.statement, source_ref: e.source_ref, context_provenance: e.context_provenance || null, at: e.createdAt, findings: e.finding_keys || [], verification: 'Resident-reported; not independently measured' }));
+    const change = weightChange(record, this.clock());
+    const recorded = [
+      { statement: `Known conditions: ${record.conditions.join(', ')}. Medication record: ${record.medications.join('; ')}.`, source_ref: record.source_ref, verification: 'User-supplied fictional care record', medication_history: record.medication_history || [] },
+      ...(change ? [{ statement: `Recorded morning weight: ${change.previous.value} to ${change.latest.value} lb in ${change.hours} hours (${change.increase_lb >= 0 ? '+' : ''}${change.increase_lb} lb).`, source_ref: change.latest.source_ref, previous_source_ref: change.previous.source_ref, verification: 'Explicit fictional staff-recorded measurement scenario', measurement: change }] : []),
+    ];
+    const emergency = incident.route === 'emergency';
+    const summary = { resident: record.preferred_name || run.alias,
+      request: emergency ? 'Simulated facility emergency workflow activated — severe reported symptoms; call 911 now in a real emergency.' : incident.route === 'prompt-assessment' ? 'Prompt assessment requested — new symptoms or weight change in resident with known heart failure' : incident.findings?.medication_concern || incident.findings?.intends_to_stop_medication ? 'Medication and symptom review requested — cause unconfirmed; assess symptoms and medication concerns' : 'New symptom reported — nurse review requested under the fictional heart-failure care plan',
+      reported, recorded, baseline: record.patient_profile?.baseline || null,
+      interpretation: record.id === 'robert' && incident.route === 'clinical-review' ? 'Possible medication-related cough or another cause; cause unconfirmed. Requires symptom and medication review by the nurse/prescriber.' : 'Possible worsening heart failure or another cause; requires clinical assessment. No diagnosis has been made.',
+      recipient: owner.name, route: incident.route, synthetic: true, simulation: true, protocol_version: record.demo_care_plan.id, reference: HF_REFERENCE };
+    const taskId = `hf_${incident.id}`, old = await this.store.get(run.pk, `TASK#${taskId}`);
+    const payloadHash = hash(summary);
+    const unchanged = old?.payload_hash === payloadHash;
+    const receipt = { task_id: taskId, status: 'SIMULATED_DELIVERED', simulation: true, external_contact: false, owner: owner.name,
+      route: incident.route, delivered_at: unchanged ? old.delivered_at : utc(), assessment_status: unchanged && old.status === 'RESOLVED' ? 'REVIEW_RECORDED_BY_NURSE' : 'PENDING',
+      acknowledged_by: unchanged ? old.acknowledged_by : null, emergency_workflow: emergency ? 'SIMULATED_ACTIVATED' : null };
+    const task = { ...(old || {}), pk: run.pk, sk: `TASK#${taskId}`, id: taskId, type: 'CareTask', version: (old?.version || 0) + 1,
+      residentId: run.residentId, resident: record.preferred_name || run.alias, incident_id: incident.id, run_id: run.id, owner: owner.subject, owner_name: owner.name,
+      status: unchanged ? old.status : 'CREATED', acknowledged_by: receipt.acknowledged_by, next_step: unchanged ? old.next_step : null,
+      acknowledged_at: unchanged ? old.acknowledged_at || null : null, acknowledged_subject: unchanged ? old.acknowledged_subject || null : null, resolved_by: unchanged ? old.resolved_by || null : null,
+      summary, payload_hash: payloadHash, evidence_ids: incident.evidence_ids, route: incident.route, protocol_version: record.demo_care_plan.id,
+      createdAt: old?.createdAt || utc(), delivered_at: receipt.delivered_at, delivery_status: 'SIMULATED_DELIVERED', simulation: true, external_contact: false,
+      assessment_status: receipt.assessment_status, ...(old?.acknowledged_by && !unchanged ? { previous_acknowledgment: { name: old.acknowledged_by, at: old.acknowledged_at } } : {}) };
+    // Receipt exists only after the guarded transaction persists to the demo inbox.
+    await this.store.transact([...this.guardChecks(state), check(record), check(owner, { equals: { active: true } }),
+      put(task, old?.version ?? null), put({ ...incident, version: incident.version + 1, alert_pending: false, alert_receipt: receipt }, incident.version)]);
+    return { alert: receipt, replayed: unchanged };
   }
   publicDraft(draft) { return { id: draft.id, incident_id: draft.incident_id, summary: draft.summary, recipient: draft.owner_name, valid: draft.valid, request_id: draft.request_id, payload_hash: draft.payload_hash }; }
   async confirm(principal, runId, draftId, accepted) {

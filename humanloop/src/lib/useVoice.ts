@@ -6,7 +6,7 @@ import { useCare, type Data } from './care';
 export type VoiceStatus = 'idle' | 'connecting' | 'live' | 'renewing' | 'typed' | 'stopping' | 'error';
 export type Transcript = { id: string; role: 'USER' | 'ASSISTANT'; text: string; final: boolean };
 type Resources = { cancelled: boolean; accepting: boolean; runId?: string; audio?: any; detector?: any; socket?: WebSocket; heartbeat?: ReturnType<typeof setInterval>; opening?: ReturnType<typeof setTimeout>; stopPromise?: Promise<void> };
-export function useVoice(handlers: { onTranscript: (turn: Transcript) => void; onReset: () => void }) {
+export function useVoice(handlers: { workflow?: 'social' | 'clinical'; onTranscript: (turn: Transcript) => void; onReset: () => void }) {
   const { api, token, refresh } = useCare();
   const [status, setStatus] = useState<VoiceStatus>('idle'), [message, setMessage] = useState('');
   const [level, setLevel] = useState(0), [speaking, setSpeaking] = useState(false), [detector, setDetector] = useState('stopped');
@@ -25,7 +25,7 @@ export function useVoice(handlers: { onTranscript: (turn: Transcript) => void; o
         if (resources.current === r) { resources.current = null; if (update) setStatus('idle'); }
       } catch {
         r.stopPromise = undefined;
-        if (update) { setStatus('stopping'); setMessage('Listening is off. Please retry End check-in to confirm the server stopped.'); }
+        if (update) { setStatus('stopping'); setMessage('Listening is off. Tap your companion again to confirm the check-in stopped.'); }
       }
     })(); return r.stopPromise;
   }, []);
@@ -51,15 +51,17 @@ export function useVoice(handlers: { onTranscript: (turn: Transcript) => void; o
         await r.audio.start();
         if (r.cancelled) { await r.audio.stop(); return; }
       }
-      const run = await api('/runs', { consent: true }); r.runId = run.id;
+      const run = await api('/runs', { consent: true, workflow: handlersRef.current.workflow || 'clinical' }); r.runId = run.id;
       if (r.cancelled) { await api(`/runs/${run.id}/stop`, {}); return; }
       r.heartbeat = setInterval(() => { void api(`/runs/${run.id}/heartbeat`, {}).catch(() => fail(r, 'The connection was lost. Listening has stopped. Please start again.')); }, 2000);
       if (mode === 'typed') { await api(`/runs/${run.id}/analysis`, { analysis: 'typed-only', detector: 'unavailable' }); if (!r.cancelled) setStatus('typed'); await refresh(); return; }
       const started = performance.now();
+      if (handlersRef.current.workflow !== 'social') {
       r.detector = new SoundDetector((observation: Data) => { if (!r.cancelled) void api(`/runs/${run.id}/observations`, observation).catch(() => setMessage('A sound observation could not be saved. Please describe your concern.')); }, (value: string) => {
         if (!r.cancelled) { setDetector(value); void api(`/runs/${run.id}/analysis`, { analysis: 'voice', detector: value }).catch(() => {}); }
       });
       void r.detector.start().catch(() => { if (!r.cancelled) setDetector('unavailable'); });
+      }
       const url = new URL('/ws', location.href); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('run', run.id);
       const encoded = btoa(token).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
       const socket = new WebSocket(url, [`carealong-token.${encoded}`, 'carealong']); r.socket = socket;
@@ -82,7 +84,7 @@ export function useVoice(handlers: { onTranscript: (turn: Transcript) => void; o
       socket.onerror = () => fail(r, 'Voice disconnected. Please start a new check-in.');
       socket.onclose = () => { if (!r.cancelled) fail(r, 'Voice ended. You can start a new check-in.'); };
       await refresh();
-    } catch (e) { fail(r, (e as Error).name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser, or use typed check-in.' : (e as Error).message); }
+    } catch (e) { fail(r, (e as Error).name === 'NotAllowedError' ? 'Microphone access was blocked. Allow microphone access in your browser, then tap your companion to try again.' : (e as Error).message); }
   }, [api, token, refresh, fail, stopResource]);
   const sendText = useCallback(async (text: string) => {
     const r = resources.current; if (!r?.runId || r.cancelled) throw new Error('Start a check-in first.');

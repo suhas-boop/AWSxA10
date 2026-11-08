@@ -1,0 +1,38 @@
+{
+  "profiles": [{
+    "resident_id": "margaret",
+    "preferred_name": "Maggie",
+    "conditions": ["Chronic heart failure", "High blood pressure"],
+    "medications": ["Lisinopril; dose not supplied", "Prescribed diuretic; name and dose not supplied; administration managed by staff"],
+    "patient_profile": {
+      "full_name": "Margaret Thompson",
+      "age": 78,
+      "setting": "Assisted-living community",
+      "personality": "Friendly and independent; may minimize symptoms because she does not want to bother the nurse. Acknowledge her independence without minimizing a reported change.",
+      "interests": ["Gardening", "Afternoon bingo with her friend Rose"],
+      "baseline": {
+        "activity": "Walks to the dining room and attends bingo without stopping to catch her breath",
+        "sleep": "Sleeps comfortably with one pillow",
+        "weight_lb": 150,
+        "weight_history": "Approximately 150 lb, stable over the previous week; historical baseline, not today's measurement",
+        "symptoms": "No persistent cough, breathlessness at rest, or ankle swelling at baseline; today's symptoms must be asked about"
+      }
+    },
+    "demo_care_plan": { "id": "maggie-heart-failure-v1", "simulated_alerts": true },
+    "daily_checkin": {
+      "version": "maggie-heart-failure-v1",
+      "enabled": true,
+      "opening": "Say hello to Maggie and ask how her morning is going. Gardening or bingo with Rose can be a natural conversation topic. Do not presume she attended bingo or has any new symptom.",
+      "questions": [
+        { "id": "cough", "condition": "Heart failure", "question": "Have you noticed a new cough or any change in your usual cough?", "required": true },
+        { "id": "onset", "condition": "Heart failure; if cough is reported", "question": "When did the cough start? Skip if she already told you when.", "required": true },
+        { "id": "sleep", "condition": "Heart failure", "question": "How was your breathing lying down last night—did you need more pillows than your usual one?", "required": true },
+        { "id": "activity", "condition": "Heart failure", "question": "How did the walk to the dining room feel compared with usual?", "required": true },
+        { "id": "swelling", "condition": "Heart failure", "question": "Have your ankles or legs looked more swollen than usual?", "required": true },
+        { "id": "weight", "condition": "Heart failure", "question": "Has staff checked your weight this morning? Use an authorized recorded measurement if available; a spoken weight remains resident-reported.", "required": true },
+        { "id": "routine", "condition": "Heart failure; functional context", "question": "How is your energy for gardening or bingo today?", "required": true },
+        { "id": "other", "condition": "Heart failure", "question": "Has anything else changed, such as breathing while resting or chest discomfort? Stop routine questions for severe breathing difficulty.", "required": true }
+      ]
+    }
+  }]
+}

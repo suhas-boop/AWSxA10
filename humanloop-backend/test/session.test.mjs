@@ -152,3 +152,30 @@ test('renewal can replay an assistant-first greeting without fabricating residen
   assert.ok(transport.connections[1].input.some(x => x.event.textInput?.content === 'Hello.\nHow was your day?'));
   assert.equal(session.history.length, 3); assert.equal(session.history.filter(x => x.role === 'USER').length, 1);
 });
+test('staff application update is interactive, waits for idle, and never becomes resident speech', async t => {
+  const { session, transport, events } = setup(t), reported = [];
+  session.onFinalTurn = turn => reported.push(turn); await session.start();
+  const text = 'Application event: staff update for request 123.';
+  session.connection.busy = true; assert.equal(session.notify(text), false);
+  session.connection.busy = false; assert.equal(session.notify(text), true);
+  await until(() => transport.connections[0].input.some(x => x.event.textInput?.content === text));
+  const output = transport.connections[0].output;
+  output.push({ contentStart: { contentId: 'staff-event', role: 'USER', type: 'TEXT' } });
+  output.push({ textOutput: { contentId: 'staff-event', content: text } });
+  output.push({ contentEnd: { contentId: 'staff-event' } });
+  await until(() => session.connection.modelEvents >= 3);
+  assert.deepEqual(reported, []); assert.equal(session.history.length, 0);
+  assert.equal(events.some(e => e.type === 'transcript' && e.role === 'USER'), false);
+});
+test('Nova completion can span turns; quiet finalized speech permits a staff update without completionEnd', async t => {
+  const { session, transport } = setup(t); await session.start(); const output = transport.connections[0].output;
+  output.push({ completionStart: { completionId: 'long-lived' } });
+  output.push({ contentStart: { contentId: 'answer', role: 'ASSISTANT', type: 'TEXT', additionalModelFields: JSON.stringify({ generationStage: 'FINAL' }) } });
+  output.push({ textOutput: { contentId: 'answer', content: 'Your request is in the inbox.' } });
+  output.push({ contentEnd: { contentId: 'answer', stopReason: 'END_TURN' } });
+  await until(() => session.history.length === 1);
+  assert.equal(session.connection.busy, true); assert.equal(session.canNotify(), false);
+  session.connection.lastOutputAt = Date.now() - 2000;
+  assert.equal(session.notify('Application event: a saved reply is available.'), true);
+  assert.equal(session.canNotify(), false, 'do not enqueue another update before this one is answered');
+});

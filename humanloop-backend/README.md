@@ -6,21 +6,23 @@ The CareAlong voice backend and its reference web interface: a local senior-care
 
 ## Start
 
-This directory is self-contained. The repository also contains the separate HospicePrint project. The `../humanloop` senior voice screen is integrated with this backend; its nurse/care-team view is deferred. See `../humanloop/README.md` to run that interface.
+This backend uses the original AgenticPrint core in `../hospiceprint` and the resident/staff UI in `../humanloop`. Keep the repository layout intact. See `../humanloop/README.md` for the integrated interface.
 
-Node 24 and AWS CLI are required. In the **same terminal** that will start the backend, export fresh Workshop Studio temporary credentials for account **389415889552**, region **us-east-1**. Keep the session token as well as the access and secret keys. Do not use the unrelated default AWS account. Startup verifies the account and stops on a mismatch.
+Node 24, Python 3.13 (or modern Python with OpenSSL/scrypt support), and AWS CLI are required. In the **same terminal** that will start the backend, export fresh Workshop Studio temporary credentials for account **389415889552**, region **us-east-1**. Keep the session token as well as the access and secret keys. Do not use the unrelated default AWS account. Startup verifies the account and stops on a mismatch.
 
 ```sh
 git clone --branch humanloop-backend https://github.com/suhas-boop/AWSxA10.git
 cd AWSxA10/humanloop-backend
 npm ci
+python3.13 -m venv ../.venv-agentprint
+../.venv-agentprint/bin/python -m pip install -r ../requirements-agentprint.txt
+npm --prefix ../humanloop ci
 # Only on a new checkout, if .env does not already exist:
 cp -n .env.example .env
 npm run preflight
 # Existing cloud configuration is reused; this creates resources only when missing:
 npm run provision
-npm run prepare:audio
-npm run build
+npm --prefix ../humanloop run build
 npm start
 ```
 
@@ -125,9 +127,9 @@ Resident fixtures, assignments, Cognito users/passwords and cloud resources rema
 
 AWS credentials, Cognito configuration and passwords, generated audio/model binaries, dependencies, build output, transcripts, logs, screenshots and local test reports are excluded from Git. `npm run provision` creates the ignored cloud configuration and demo secrets for an authorized account; `npm run prepare:audio` downloads the checksum-verified model and copies the installed audio runtime. `VERIFICATION.md` describes checks performed in the original local workspace; its `data/` references are local artifacts, not files included in this repository.
 
-## Add the two patient profiles later
+## Import or update patient profiles
 
-The integrated senior view is in `../humanloop`. Copy `config/patient-profiles.example.json` to the ignored `.carealong-patient-profiles.json`. The two slots bind to the existing Margaret and Daniel demo identities; keep those IDs for now and provide preferred names, conditions and question plans when the profiles are available. `null` name/conditions leave the existing fixture values untouched. Do not commit populated profiles.
+The integrated senior view is in `../humanloop`. Copy `config/patient-profiles.example.json` to the ignored `.carealong-patient-profiles.json`. The template slots bind to Margaret and Robert, whose supplied fictional profiles are Maggie and Bob. `null` name/conditions leave existing values untouched. Keep private patient imports ignored; the explicitly fictional demo profiles in `config/` contain no real patient records or credentials.
 
 Each supplied question has this shape (this illustrates the schema, not a disease-specific care protocol):
 
@@ -146,4 +148,22 @@ Set the plan's `enabled` to `true` only after adding its questions and a version
 node scripts/apply-patient-profiles.mjs .carealong-patient-profiles.json
 ```
 
-Start a fresh check-in after importing profiles. The importer validates the schema and existing resident IDs, checks the account, and atomically updates the bound profile records. The context tool reads only the current resident's plan and rechecks permission. Profile updates do not create tasks or change human confirmation requirements. Empty/invalid plans are treated as unconfigured; no required disease questions are manufactured. The current daily question pacing uses the model's session history; it is not a formal scored questionnaire or a persisted daily-completion report.
+Start a fresh check-in after importing profiles. The importer validates the schema and existing resident IDs, checks the account, and atomically updates the bound profile records. The context tool reads only the current resident's plan and rechecks permission. Importing alone does not create tasks. Ordinary handoffs retain human confirmation; the two explicit synthetic heart-failure care plans authorize automatic simulated alerts during a check-in. Empty/invalid plans are treated as unconfigured; no required disease questions are manufactured. The current daily question pacing uses the model's session history; it is not a formal scored questionnaire or a persisted daily-completion report.
+
+## Supplied Maggie and Bob demo profiles
+
+The senior experience now supports the two user-supplied fictional heart-failure profiles, separate baseline versus reported/recorded evidence, simulated nurse alerts, and emergency-priority routing. Follow [DEMO-SCENARIOS.md](config/DEMO-SCENARIOS.md) for profile imports, spoken examples, recorded-weight scenario controls and test commands. These demo alerts use the existing protected MCP gateway and never send real notifications or place calls. The HumanLoop staff portal now displays assigned nurse alerts alongside a separate everyday-companion request workflow.
+
+## HumanLoop AgentPrint integration
+
+Use the integrated `../humanloop` build/start instructions for the current resident and staff UI. The original `web/care.tsx` screens are legacy; they do not implement the new portal snapshot contract.
+
+`server/care/agentprint.mjs` starts the private `hospiceprint.humanloop_bridge` process. The backend first verifies Cognito authentication, current membership and run binding. The adapter then uses the original workload registry/attestation, ES256 grant service, Ed25519 request proof, MCP gateway, policy engine and hash-chained audit implementation. Each resident has separate everyday and clinical workload identities. The print covers the registered model, instructions, tool names and signing key. This is backend workload identity, **not tablet hardware attestation**. The Cognito adapter does not claim to reproduce the original Python demo’s staff MFA or device-PIN ceremony.
+
+Install `../requirements-agentprint.txt` into `../.venv-agentprint`, or set `AGENTPRINT_PYTHON` to a prepared interpreter. Private workload keys persist in ignored `.carealong-agentprint-keys.json` with mode 0600. Do not publish that file. Grants and the bridge audit chain are process-local; sanitized decision receipts are persisted in DynamoDB. These receipts do not constitute a cross-restart immutable audit service.
+
+`portal.mjs` reads current server-side policy and synthetic consent on every action, and checks the same versions in the DynamoDB transaction before returning data or saving an effect. Disabling a capability invalidates the next action even under an existing grant. Social runs have no clinical grants. Help creation requires a bounded exact excerpt of current resident speech and explicit request wording; ambiguous or negated language requires clarification. Assigned staff reply through authenticated endpoints, and the live voice session fetches saved replies after a content-free application notification. Admins cannot see request excerpts or clinical records through this portal.
+
+The new staff endpoints support preferences, approved activity reminders, request acknowledgment/reply, capability changes and pause. Activity schedule editing, full staff administration, physical-device management and production deployment are not implemented by this demo.
+
+The integrated container build uses the repository root as context: `docker build -f humanloop-backend/Dockerfile -t humanloop .`. It includes the Python bridge and compiled HumanLoop UI. The local Docker daemon was unavailable during this integration, so this updated container recipe has not been built here. Mount cloud configuration and demo secrets at runtime, keep workload keys private and persistent, and configure allowed browser origins. Container packaging is separate from an AgentCore deployment.

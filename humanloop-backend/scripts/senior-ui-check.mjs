@@ -26,7 +26,7 @@ await page.addInitScript(() => {
   window.__voiceCheck = { audio: 0, input: 0, streamErrors: [], finalUsers: 0, finalAssistant: 0, statuses: [], authorizedSocket: false, tracks: [], turns: [] };
   const Base = window.WebSocket;
   window.WebSocket = class extends Base {
-    constructor(url, protocols) { super(url, protocols); window.__voiceCheck.authorizedSocket = Array.isArray(protocols) && protocols.includes('carealong') && protocols.some(p => p.startsWith('carealong-token.'));
+    constructor(url, protocols) { super(url, protocols); window.__voiceSocket = this; window.__voiceCheck.authorizedSocket = Array.isArray(protocols) && protocols.includes('carealong') && protocols.some(p => p.startsWith('carealong-token.'));
       this.addEventListener('message', e => { try { const m = JSON.parse(e.data), c = window.__voiceCheck; if (m.type === 'error') c.streamErrors.push(m.message); if (m.type === 'audio') c.audio++; if (m.type === 'status') c.statuses.push(m.status); if (m.type === 'transcript' && m.final) { if (m.role === 'USER') c.finalUsers++; else c.finalAssistant++; c.turns.push({ role: m.role, text: m.text }); } } catch {} });
     }
     send(data) { if (typeof data !== 'string') window.__voiceCheck.input++; super.send(data); }
@@ -39,11 +39,13 @@ const metrics = () => page.evaluate(() => { const { tracks, ...rest } = window._
 try {
   await page.goto(origin); await page.getByLabel('Who is signing in?').selectOption('daniel'); await page.getByLabel('Password', { exact: true }).fill(passwords.daniel); await page.getByRole('button', { name: 'Sign in securely' }).click();
   await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeVisible({ timeout: 20000 });
-  await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeEnabled();
+  await expect(page.locator('footer.stage-controls')).toHaveCount(0);
+  expect((await metrics()).liveTracks).toBe(0);
   await expect(page.getByText('Dr. Miller', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: 'data/screenshots/humanloop-senior-idle.png', fullPage: true });
-  checks.push('real resident login opens committed voice stage directly; consent required');
-  await page.getByRole('checkbox').check(); await page.getByRole('button', { name: 'Start voice', exact: true }).click();
+  checks.push('real resident login opens committed voice stage directly; microphone remains off until companion is tapped');
+  await page.getByRole('button', { name: 'Start voice', exact: true }).click();
   await expect(page.getByText('Listening…', { exact: true })).toBeVisible({ timeout: 25000 });
   await expect.poll(async () => (await metrics()).finalAssistant, { timeout: 10000 }).toBeGreaterThan(0);
   expect((await metrics()).finalUsers).toBe(0);
@@ -55,12 +57,11 @@ try {
   await expect.poll(async () => { const turns = (await metrics()).turns; const answer = turns.findIndex(t => t.role === 'USER' && /not severe/i.test(t.text)); return turns.slice(answer + 1).filter(t => t.role === 'ASSISTANT').map(t => t.text).join(' '); }, { timeout: 25000 }).toMatch(/prepare.*request|care team.*review|discomfort|uncomfortable/i);
   const beforeReconnect = await metrics(); expect(beforeReconnect.input).toBeGreaterThan(100); expect(beforeReconnect.audio).toBeGreaterThan(0); expect(beforeReconnect.authorizedSocket).toBe(true); expect(beforeReconnect.finalUsers).toBeGreaterThanOrEqual(3); expect(beforeReconnect.turns.some(t => /application event:/i.test(t.text))).toBe(false);
   checks.push('real browser microphone, shared AudioWorklet, authenticated Bedrock stream, audio and captions across three scenario turns');
-  await expect(page.locator('.stage-controls')).toContainText('Local sound analysis is on');
   const state = await page.evaluate(async () => fetch('/api/state', { headers: { Authorization: `Bearer ${sessionStorage.getItem('carealong-session')}` } }).then(r => r.json())); runId = state.run.id;
   expect(state.incident.phase).toBe('ready'); expect(state.incident.severe_breathing).toBe(false);
   expect(state.evidence.some(e => /not severe.*uncomfortable/i.test(e.statement))).toBe(true);
   checks.push('spoken indirect answer advances real controller and retains discomfort');
-  await page.getByRole('button', { name: 'Reconnect voice' }).click();
+  await page.evaluate(() => window.__voiceSocket.send(JSON.stringify({ type: 'reconnect' })));
   await expect.poll(async () => (await metrics()).statuses.filter(s => s === 'listening').length, { timeout: 20000 }).toBe(2);
   await expect.poll(async () => (await metrics()).finalUsers, { timeout: 55000 }).toBeGreaterThan(beforeReconnect.finalUsers);
   await expect.poll(async () => (await metrics()).audio, { timeout: 20000 }).toBeGreaterThan(beforeReconnect.audio);

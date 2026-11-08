@@ -1,0 +1,103 @@
+{
+  "profiles": [
+    {
+      "resident_id": "robert",
+      "preferred_name": "Bob",
+      "conditions": [
+        "Chronic heart failure",
+        "High blood pressure"
+      ],
+      "medications": [
+        "Lisinopril; started 12 days before this demo profile was loaded; dose not supplied"
+      ],
+      "medication_history": [
+        {
+          "name": "Lisinopril",
+          "started_days_before_profile": 12
+        }
+      ],
+      "patient_profile": {
+        "full_name": "Robert Miller",
+        "age": 74,
+        "setting": "Assisted-living community",
+        "personality": "Independent; may consider skipping medication when side effects bother him. Acknowledge frustration, do not assume a cause, and route medication decisions to the nurse and prescriber.",
+        "interests": [
+          "Crossword puzzles",
+          "Morning walks"
+        ],
+        "baseline": {
+          "activity": "Walks to breakfast comfortably",
+          "sleep": "Sleeps comfortably with one pillow",
+          "weight_lb": 172,
+          "weight_history": "Stable around 172 lb; historical baseline, not today's measurement",
+          "symptoms": "No ankle swelling or breathlessness at baseline; today's symptoms must be asked about"
+        }
+      },
+      "demo_care_plan": {
+        "id": "bob-heart-failure-v1",
+        "simulated_alerts": true
+      },
+      "daily_checkin": {
+        "version": "bob-heart-failure-v1",
+        "enabled": true,
+        "opening": "Say hello to Bob and ask how his morning is going. Crossword puzzles or morning walks may be a natural conversation topic. Do not presume new symptoms or medication concerns.",
+        "questions": [
+          {
+            "id": "medication-concern",
+            "condition": "Recent lisinopril start",
+            "question": "How have things felt since the medication change? Ask about any concerns, and whether he is considering skipping or changing a dose.",
+            "required": true
+          },
+          {
+            "id": "cough",
+            "condition": "Heart failure",
+            "question": "Have you noticed a new cough or any change in your usual cough?",
+            "required": true
+          },
+          {
+            "id": "onset",
+            "condition": "Heart failure; if cough is reported",
+            "question": "When did the cough start? Skip if he already told you when.",
+            "required": true
+          },
+          {
+            "id": "sleep",
+            "condition": "Heart failure",
+            "question": "How was your breathing lying down last night\u2014did you need more pillows than your usual one?",
+            "required": true
+          },
+          {
+            "id": "activity",
+            "condition": "Heart failure",
+            "question": "How did the walk to the dining room feel compared with usual?",
+            "required": true
+          },
+          {
+            "id": "swelling",
+            "condition": "Heart failure",
+            "question": "Have your ankles or legs looked more swollen than usual?",
+            "required": true
+          },
+          {
+            "id": "weight",
+            "condition": "Heart failure",
+            "question": "Has staff checked your weight this morning? Use an authorized recorded measurement if available; a spoken weight remains resident-reported.",
+            "required": true
+          },
+          {
+            "id": "routine",
+            "condition": "Heart failure; functional context",
+            "question": "How is your energy for your morning walks or crossword puzzles?",
+            "required": true
+          },
+          {
+            "id": "other",
+            "condition": "Heart failure",
+            "question": "Has anything else changed, such as breathing while resting or chest discomfort? Stop routine questions for severe breathing difficulty.",
+            "required": true
+          }
+        ]
+      }
+    }
+  ]
+}

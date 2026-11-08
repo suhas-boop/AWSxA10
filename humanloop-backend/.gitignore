@@ -9,6 +9,7 @@ data/
 .DS_Store
 .carealong-cloud.json
 .carealong-secrets.json
+.carealong-agentprint-keys.*
 test-results/
 playwright-report/
 

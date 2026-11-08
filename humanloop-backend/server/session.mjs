@@ -13,7 +13,7 @@ export class SonicSession {
     Object.assign(this, { transport, runner, emit, voice, renewAfterMs, hardRenewMs });
     Object.assign(this, { systemPrompt, requiredTool, onFinalTurn, initialPrompt, diagnose });
     this.id = randomUUID();
-    this.history = [];
+    this.history = []; this.applicationInputs = new Set(initialPrompt ? [initialPrompt] : []);
     this.actions = [];
     this.active = false;
     this.rotating = false;
@@ -67,6 +67,22 @@ export class SonicSession {
       for (const item of textEvents(c.promptName, 'USER', this.initialPrompt, true)) c.queue.push(item);
     }
   }
+  canNotify() {
+    const c = this.connection;
+    if (!this.active || this.rotating || !c || c.closing || c.pendingTools.size || c.blocks.size) return false;
+    // Nova can keep one completion open across multiple conversation turns.
+    // A finished spoken turn plus quiet output is a separate notification boundary.
+    return !c.busy || !!(c.lastAssistantFinalAt && c.lastAssistantFinalAt >= (c.lastUserFinalAt || 0)
+      && c.lastAssistantFinalAt >= (c.lastNotificationAt || 0) && Date.now() - c.lastOutputAt >= 1500);
+  }
+  notify(text) {
+    const c = this.connection;
+    if (!this.canNotify()) return false;
+    this.applicationInputs.add(text);
+    if (this.applicationInputs.size > 100) this.applicationInputs.delete(this.applicationInputs.values().next().value);
+    for (const item of textEvents(c.promptName, 'USER', text, true)) c.queue.push(item);
+    c.busy = true; c.lastNotificationAt = Date.now(); return true;
+  }
   async read(c, output) {
     for await (const message of output) {
       if (c.closing || this.connection !== c) continue;
@@ -89,6 +105,7 @@ export class SonicSession {
       c.blocks.set(start.contentId, { role: start.role, type: start.type, stage, text: '' });
     }
     if (message.textOutput) {
+      c.lastOutputAt = Date.now();
       const value = message.textOutput;
       let interrupted = false;
       try { interrupted = JSON.parse(value.content)?.interrupted === true; } catch { /* Normal text. */ }
@@ -99,12 +116,13 @@ export class SonicSession {
           block.text += value.content;
           if (block.text.length > 16000) throw new Error('Transcript block too large');
           // Only final, actually-spoken assistant text is shown and carried across renewals.
-          const applicationEcho = block.role === 'USER' && this.initialPrompt?.startsWith(block.text);
+          const applicationEcho = block.role === 'USER' && [this.initialPrompt, ...this.applicationInputs].some(text => text?.startsWith(block.text));
           if (!applicationEcho && (block.stage === 'FINAL' || block.role === 'USER')) this.emit({ type: 'transcript', id: value.contentId, role: block.role, text: block.text, final: false });
         }
       }
     }
     if (message.audioOutput) {
+      c.lastOutputAt = Date.now();
       const value = message.audioOutput;
       const contentId = value.contentId;
       if (typeof contentId !== 'string') throw new Error('Missing audio content identifier');
@@ -140,7 +158,9 @@ export class SonicSession {
       const value = message.contentEnd;
       if (value.stopReason === 'INTERRUPTED') this.interrupt(c, value.contentId);
       const block = c.blocks.get(value.contentId);
-      if (block?.text && !(block.role === 'USER' && block.text === this.initialPrompt) && (block.stage === 'FINAL' || block.role === 'USER') && ['USER', 'ASSISTANT'].includes(block.role)) {
+      if (block?.text && !(block.role === 'USER' && (block.text === this.initialPrompt || this.applicationInputs.has(block.text))) && (block.stage === 'FINAL' || block.role === 'USER') && ['USER', 'ASSISTANT'].includes(block.role)) {
+        if (block.role === 'USER') c.lastUserFinalAt = Date.now();
+        if (block.role === 'ASSISTANT') c.lastAssistantFinalAt = Date.now();
         if (block.role === 'USER' && this.onFinalTurn) { const started = Date.now(); await this.onFinalTurn({ text: block.text, id: value.contentId }); this.diagnose({ event: 'turn_saved', durationMs: Date.now() - started }); }
         this.history.push({ role: block.role, text: block.text });
         while (this.history.length > 60 || this.history.reduce((n, item) => n + item.text.length, 0) > 24000) this.history.shift();

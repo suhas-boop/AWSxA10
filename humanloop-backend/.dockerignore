@@ -9,3 +9,5 @@ test
 *.log
 .carealong-secrets.json
 .carealong-cloud.json
+
+.carealong-agentprint-keys.*

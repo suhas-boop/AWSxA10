@@ -19,7 +19,7 @@ export function createTransport({ region, modelId }) {
           if (part.chunk?.bytes) yield JSON.parse(new TextDecoder().decode(part.chunk.bytes)).event;
           else {
             const name = Object.keys(part).find(key => key.endsWith('Exception'));
-            if (name) { const error = new Error('Bedrock stream failed'); error.name = name; throw error; }
+            if (name) { const error = new Error(part[name]?.message || 'Bedrock stream failed'); error.name = name; throw error; }
           }
         }
       })();

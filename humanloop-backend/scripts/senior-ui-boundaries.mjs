@@ -12,7 +12,7 @@ await page.addInitScript(() => {
   const create = AudioContext.prototype.createBufferSource;
   AudioContext.prototype.createBufferSource = function () { const source = create.call(this), stop = source.stop.bind(source); source.stop = (...args) => { window.__boundary.playbackStops++; return stop(...args); }; return source; };
 });
-let releaseStart, starts = 0, stops = 0, socket, reconnects = 0;
+let releaseStart, starts = 0, stops = 0, socket;
 const pendingStart = new Promise(r => { releaseStart = r; });
 const state = { actor: { name: 'Test resident', role: 'resident', username: 'margaret' }, tasks: [], drafts: [], run: null };
 await page.route('**/api/**', async route => {
@@ -26,17 +26,22 @@ await page.route('**/api/**', async route => {
   if (path.endsWith('/stop')) { stops++; state.run.state = 'STOPPED'; }
   return json({ ok: true });
 });
-await page.routeWebSocket('**/ws?*', ws => { socket = ws; setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); ws.onMessage(m => { if (typeof m === 'string' && JSON.parse(m).type === 'reconnect') { reconnects++; ws.send(JSON.stringify({ type: 'status', status: 'renewing' })); setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); } }); });
+await page.routeWebSocket('**/ws?*', ws => { socket = ws; setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); ws.onMessage(m => { if (typeof m === 'string' && JSON.parse(m).type === 'reconnect') { ws.send(JSON.stringify({ type: 'status', status: 'renewing' })); setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); } }); });
 try {
   await page.goto('http://127.0.0.1:8080'); await page.getByLabel('Password', { exact: true }).fill('test-only'); await page.getByRole('button', { name: 'Sign in securely' }).click();
-  await page.getByRole('checkbox').check(); await page.getByRole('button', { name: 'Start voice', exact: true }).click();
+  await expect(page.locator('footer.stage-controls')).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Human help' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Jump to latest captions' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__boundary.tracks.length)).toBe(0);
+  await page.getByRole('button', { name: 'Start voice', exact: true }).click();
   await expect.poll(() => starts).toBe(1);
   await page.getByRole('button', { name: 'End check-in', exact: true }).click(); releaseStart();
   await expect.poll(() => stops).toBe(1);
   expect(await page.evaluate(() => window.__boundary.tracks.filter(t => t.readyState === 'live').length)).toBe(0);
   expect(socket).toBeUndefined(); checks.push('cancel during delayed run creation closes microphone and stops late-created run without opening a socket');
   await page.getByRole('button', { name: 'Start voice', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Reconnect voice' })).toBeVisible();
+  await expect(page.getByText('Listening…', { exact: true })).toBeVisible();
   const send = m => socket.send(JSON.stringify(m));
   send({ type: 'transcript', id: 'same-turn', role: 'USER', text: 'Hello', final: false });
   send({ type: 'transcript', id: 'same-turn', role: 'USER', text: 'Hello there.', final: true });
@@ -48,15 +53,21 @@ try {
   send({ type: 'audio', data: Buffer.alloc(96000).toString('base64') });
   await expect(page.getByText('Your companion is speaking', { exact: true })).toBeVisible();
   checks.push('partial/final captions replace by ID; interruption clears queued audio and later audio still plays');
-  await page.getByRole('button', { name: 'Reconnect voice' }).click(); await expect.poll(() => reconnects).toBe(1);
+  send({ type: 'status', status: 'renewing' });
+  await expect(page.getByText('Reconnecting…', { exact: true })).toBeVisible();
+  send({ type: 'status', status: 'listening' });
   await expect(page.getByText('Listening…', { exact: true })).toBeVisible();
   await expect(page.getByText('Reconnecting. Repeat your last sentence when Listening returns.', { exact: true })).toHaveCount(0);
-  const box = await page.getByLabel('Type your response').boundingBox(); expect(box.width).toBeGreaterThan(250);
+  await expect(page.getByLabel('Type your response')).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await mkdir('data/screenshots', { recursive: true });
+  await page.screenshot({ path: 'data/screenshots/senior-without-bottom-panel.png', fullPage: true });
   send({ type: 'error', message: 'Synthetic disconnect for regression check.' });
   await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__boundary.tracks.filter(t => t.readyState === 'live').length)).toBe(0);
   await expect(page.locator('[data-turn-id]')).toHaveCount(1);
-  checks.push('reconnect notice clears, text input has usable width, and disconnect stops capture without a scripted reply');
+  checks.push('renewal returns to listening; bottom panel absent at mobile width; disconnect stops capture without a scripted reply');
   expect(errors).toEqual([]);
 } finally {
   await context.close(); await browser.close(); await mkdir('data', { recursive: true });

@@ -3,6 +3,7 @@ import { CareService, CareError } from './service.mjs';
 import { orgPK, residentPK, residents } from './fixtures.mjs';
 import { PROTOCOL, advance, detectTopic, explicitEmergency, questionFor, EMERGENCY, URGENT } from './rules.mjs';
 import acoustic from '../../config/acoustic.json' with { type: 'json' };
+import { hasHeartFailureDemo, heartFailureFindings, heartFailureRoute, weightChange } from './heart-failure.mjs';
 const id = prefix => `${prefix}_${randomUUID()}`;
 const utc = () => new Date().toISOString();
 
@@ -51,7 +52,54 @@ export class CareWorkflow extends CareService {
       return { observed: true, incident_id: incident.id, question: questionFor(incident), candidate_count: incident.candidate_count };
     });
   }
-  async report(principal, runId, text, source = 'typed', turnId = id('turn')) {
+  async report(principal, runId, text, source = 'typed', turnId = id('turn'), speechPrefix = '') {
+    if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new CareError('EXECUTION_FAILED', 400);
+    const { run } = await this.ownedRun(principal, runId);
+    const record = await this.store.get(run.pk, 'CONTEXT');
+    if (!hasHeartFailureDemo(record) || ['head-injury', 'pharmacy'].includes(detectTopic(text))) return this.reportGeneral(principal, runId, text, source, turnId);
+    const prefix = source === 'speech' && typeof speechPrefix === 'string' ? speechPrefix.slice(-4000) : '';
+    const result = await this.reportHeartFailure(principal, runId, text, source, turnId, record, prefix);
+    if (result.general) return this.reportGeneral(principal, runId, text, source, turnId);
+    if (result.incident && result.incident.route !== 'clarify') {
+      // Execute the same permission-checked tool used by the model. Only this explicit,
+      // synthetic care plan permits automatic simulated notification; never a real call.
+      try { result.alert = await this.agentCall(runId, 'propose_follow_up', { incident_id: result.incident.id, assistance: 'Execute the authorized simulated care-plan alert.' }); }
+      catch { result.alert = { ok: false, status: 'UNKNOWN', code: 'EXECUTION_FAILED' }; }
+    }
+    return result;
+  }
+  async reportHeartFailure(principal, runId, text, source, turnId, record, speechPrefix) {
+    return this.locks.with(runId, async () => {
+      const { run } = await this.ownedRun(principal, runId);
+      const key = createHash('sha256').update(`${runId}:${turnId}`).digest('hex');
+      const old = run.incidentId ? await this.store.get(run.pk, `INCIDENT#${run.incidentId}`) : null;
+      if (await this.store.get(run.pk, `TURN#${key}`)) return { duplicate: true, incident: old?.topic === 'heart-failure' ? old : null };
+      if (old && !['cough', 'heart-failure'].includes(old.topic)) return { general: true };
+      const spokenContext = speechPrefix ? `${speechPrefix} ${text}` : text;
+      let found = heartFailureFindings(spokenContext, old?.findings);
+      if (old?.topic === 'cough' && old.phase === 'source' && /^(yes|yeah|yep|it was me|that was me)\b/i.test(text)) found = { ...found, cough: true };
+      const change = weightChange(record, this.clock());
+      if (old?.topic === 'cough' && !Object.keys(found).length && !(change?.increase_lb > 3)) return { general: true };
+      const marker = { kind: 'put', item: { pk: run.pk, sk: `TURN#${key}`, version: 1 }, expectedVersion: null };
+      if (!old && !Object.keys(found).length && !(change?.increase_lb > 3)) { await this.store.transact([marker]); return { evidence_saved: false }; }
+      const evidence = this.evidence(run, 'reported', text.trim(), `${source}:final:${turnId}`, {
+        finding_keys: Object.keys(found), utterance_context: speechPrefix ? spokenContext : null,
+        context_provenance: speechPrefix ? 'Consecutive final resident speech blocks from this same authenticated voice session; current segment preserved in statement' : null,
+        clinical_relevance: Object.keys(found).length > 0 || /cough|breath|pillows?|ankles?|swelling|weight|pounds|\blb\b|chest|tired/i.test(text),
+      });
+      const findings = { ...(old?.findings || {}), ...found };
+      const route = heartFailureRoute(findings, change);
+      const incident = { ...(old || this.incident(run, 'heart-failure', evidence)), topic: 'heart-failure', findings,
+        version: old ? old.version + 1 : 1, evidence_ids: [...(old?.evidence_ids || []), evidence.id], protocol_version: record.demo_care_plan.id,
+        route, phase: route === 'emergency' ? 'emergency' : 'monitoring', state: route === 'clarify' ? 'CLARIFYING' : 'CONFIRMED_CONCERN',
+        symptom_confirmed: Object.values(findings).some(Boolean), alert_pending: route !== 'clarify', alert_receipt: null };
+      const ops = [marker, { kind: 'put', item: evidence, expectedVersion: null }, { kind: 'put', item: incident, expectedVersion: old?.version ?? null }];
+      if (!old) ops.push({ kind: 'put', item: { ...run, version: run.version + 1, incidentId: incident.id }, expectedVersion: run.version });
+      await this.store.transact(ops);
+      return { incident, emergency: route === 'emergency' ? EMERGENCY : null };
+    });
+  }
+  async reportGeneral(principal, runId, text, source = 'typed', turnId = id('turn')) {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new CareError('EXECUTION_FAILED', 400);
     return this.locks.with(runId, async () => {
       const { run } = await this.ownedRun(principal, runId);
@@ -91,6 +139,15 @@ export class CareWorkflow extends CareService {
       if (!old || old.type !== 'reported' || !incident?.evidence_ids.includes(old.id)) throw new CareError('RESIDENT_SCOPE_DENIED');
       const correction = this.evidence(run, 'reported', text, `resident-correction:${old.id}`, { corrects_id: old.id });
       const next = { ...incident, version: incident.version + 1, state: 'CLARIFYING', phase: incident.topic === 'cough' ? 'new' : incident.topic === 'head-injury' ? 'head-confirm' : 'pickup', route: 'clarify', evidence_ids: [...incident.evidence_ids, correction.id] };
+      if (incident.topic === 'heart-failure') {
+        const record = await this.store.get(run.pk, 'CONTEXT');
+        const rows = (await Promise.all(incident.evidence_ids.map(eid => this.store.get(run.pk, `EVIDENCE#${eid}`)))).filter(e => e?.type === 'reported' && !e.superseded && e.id !== old.id);
+        let findings = {};
+        for (const row of [...rows, correction]) findings = { ...findings, ...heartFailureFindings(row.statement, findings) };
+        correction.finding_keys = Object.keys(heartFailureFindings(text)); correction.clinical_relevance = true;
+        const route = heartFailureRoute(findings, weightChange(record, this.clock()));
+        Object.assign(next, { findings, route, phase: route === 'emergency' ? 'emergency' : 'monitoring', state: route === 'clarify' ? 'CLARIFYING' : 'CONFIRMED_CONCERN', alert_receipt: null, alert_pending: route !== 'clarify' });
+      }
       const drafts = (await this.store.query(run.pk, 'DRAFT#')).filter(d => d.incident_id === incident.id && d.valid);
       const tasks = (await this.store.query(run.pk, 'TASK#')).filter(t => t.incident_id === incident.id && t.status !== 'RESOLVED');
       await this.store.transact([{ kind: 'put', item: { ...old, version: old.version + 1, superseded: true }, expectedVersion: old.version },
@@ -118,7 +175,7 @@ export class CareWorkflow extends CareService {
       const evidence = incident ? rows.filter(e => e.sk.startsWith('EVIDENCE#') && incident.evidence_ids.includes(e.id) && e.type !== 'recorded').sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
       const drafts = incident ? rows.filter(d => d.type === 'Draft' && d.incident_id === incident.id && d.valid && d.incident_version === incident.version).map(d => this.publicDraft(d)) : [];
       const tasks = rows.filter(t => t.type === 'CareTask').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      return { actor, run: run && { id: run.id, state: run.state, leaseUntil: run.leaseUntil, detector: run.detector, analysis: run.analysis },
+      return { actor, run: run && { id: run.id, workflow: run.workflow || 'clinical', state: run.state, leaseUntil: run.leaseUntil, detector: run.detector, analysis: run.analysis },
         incident, evidence, drafts, tasks, question: questionFor(incident), emergency: incident?.route === 'emergency' ? EMERGENCY : null,
         synthetic: true, human_help: 'Contact the community care desk directly. This prototype does not place calls.' };
     }

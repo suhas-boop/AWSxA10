@@ -2005,3 +2005,11 @@ button:disabled { cursor:not-allowed; opacity:.5; }
 .care-dialog small { display:block; }
 .care-dialog button:not(.dialog-close) { width:100%; margin-top:10px; }
 @media(max-width:520px) { .connected-stage .stage-top { padding:12px; } .connected-stage .brand { font-size:23px; } .senior-identity { gap:6px; font-size:14px; } .senior-identity button { padding:8px; font-size:13px; } .connected-stage .stage-controls { padding:10px 12px; } .voice-actions { gap:6px; } .start-voice,.care-action { font-size:16px; padding:12px 16px; } .quiet-control { font-size:14px; padding:10px; } .voice-consent { font-size:14px; } }
+
+/* The companion itself is the voice control; keep the conversation free of a bottom toolbar. */
+.companion-toggle { display:block; flex:none; padding:12px; border:0; border-radius:32px; background:transparent; cursor:pointer; touch-action:manipulation; }
+.companion-toggle:focus-visible { outline:3px solid var(--blue); outline-offset:4px; }
+.companion-toggle:hover .bot { filter:brightness(1.04); }
+.connected-stage .stage-bot .voice-note { max-width:680px; margin:8px 20px; font-size:16px; }
+.connected-captions { padding-bottom:max(24px,env(safe-area-inset-bottom)); }
+.connected-captions .current-question { padding:16px; border-radius:18px; background:#edf5ef; }
