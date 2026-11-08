@@ -179,3 +179,20 @@ test('Nova completion can span turns; quiet finalized speech permits a staff upd
   assert.equal(session.notify('Application event: a saved reply is available.'), true);
   assert.equal(session.canNotify(), false, 'do not enqueue another update before this one is answered');
 });
+test('response auditing receives only finalized assistant speech, linked to the real user turn', async t => {
+  const { session, transport } = setup(t), audited = [];
+  session.onFinalAssistantTurn = turn => audited.push(turn); await session.start(); const output = transport.connections[0].output;
+  const block = (id, role, stage, text, stopReason = 'END_TURN') => {
+    output.push({ contentStart: { contentId: id, role, type: 'TEXT', additionalModelFields: JSON.stringify({ generationStage: stage }) } });
+    output.push({ textOutput: { contentId: id, content: text } }); output.push({ contentEnd: { contentId: id, stopReason } });
+  };
+  block('user-question', 'USER', 'FINAL', 'What medical condition does Rose have?');
+  block('draft', 'ASSISTANT', 'SPECULATIVE', "I can't share private health information.");
+  block('interrupted', 'ASSISTANT', 'FINAL', "I can't share private", 'INTERRUPTED');
+  block('spoken', 'ASSISTANT', 'FINAL', "I can't share another resident's private health information.");
+  await until(() => audited.length === 1);
+  assert.deepEqual(audited[0], { id: 'spoken', userTurnId: 'user-question', text: "I can't share another resident's private health information." });
+  session.onFinalAssistantTurn = async () => { throw new Error('audit unavailable'); };
+  block('later', 'ASSISTANT', 'FINAL', 'How are you feeling?');
+  await until(() => session.history.some(t => t.text === 'How are you feeling?')); assert.equal(session.active, true);
+});

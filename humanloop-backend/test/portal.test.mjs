@@ -104,3 +104,29 @@ test('negated, hypothetical and unrequested help is not sent to the care team', 
   }
   assert.equal((await store.query(run.pk, 'SOCIAL_REQUEST#')).length, 0);
 });
+test('clinical context approval and a spoken refusal remain separate, accurately labelled events', async t => {
+  const { portal, care, store, person } = await setup(t);
+  const run = await care.startRun(person('margaret'), true);
+  assert.equal((await care.agentCall(run.id, 'get_checkin_context', {})).ok, true);
+  const text = "Sorry Maggie, I can't share private health details about other residents, including Rose.";
+  await portal.recordAssistantBoundary(run.id, { id: 'assistant-1', userTurnId: 'user-1', text });
+  await portal.recordAssistantBoundary(run.id, { id: 'assistant-2', userTurnId: 'user-1', text });
+  const events = (await portal.snapshot(person('admin'))).decisions.filter(d => d.run_id === run.id);
+  const gateway = events.find(d => d.event_kind === 'gateway_decision'), refusal = events.find(d => d.event_kind === 'assistant_refusal');
+  assert.equal(events.length, 2); assert.equal(gateway.action, 'Read own check-in context'); assert.equal(gateway.decision, 'Allowed'); assert.ok(gateway.audit_hash);
+  assert.equal(refusal.decision, 'Refused in conversation'); assert.equal(refusal.source, 'conversation');
+  assert.equal(refusal.audit_hash, null); assert.equal(refusal.grant_session, null); assert.equal(refusal.print_id, null);
+  assert.equal(refusal.user_turn_id, 'user-1'); assert.doesNotMatch(JSON.stringify(refusal), /Rose|Sorry Maggie/);
+  assert.equal(events.some(d => d.decision === 'Denied'), false, 'do not manufacture a gateway denial from speech');
+  const original = await store.get(gateway.pk, gateway.sk);
+  await store.put({ ...original, action: 'Authorized clinical workflow tool' });
+  assert.equal((await portal.snapshot(person('admin'))).decisions.find(d => d.id === gateway.id).action, 'Read own check-in context');
+  assert.equal((await store.get(gateway.pk, gateway.sk)).action, 'Authorized clinical workflow tool', 'historical record is not rewritten');
+});
+test('ordinary advice, user wording quoted as a question, and audio failures are not privacy-refusal events', async t => {
+  const { portal, run, person } = await setup(t);
+  for (const text of ['I can share the activity schedule.', "I can't hear you clearly.", "You cannot share Rose's private information?", "Please don't change your medication on your own.", 'I cannot diagnose the cause of your cough.']) {
+    assert.equal(await portal.recordAssistantBoundary(run.id, { id: text, userTurnId: 'user-1', text }), null);
+  }
+  assert.equal((await portal.snapshot(person('admin'))).decisions.length, 0);
+});

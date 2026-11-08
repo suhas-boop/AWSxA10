@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import Ajv from 'ajv';
+import { responseBoundary } from './response-boundaries.mjs';
 import { orgPK, residentPK, residents } from './fixtures.mjs';
 import { CareError } from './service.mjs';
 import { CAPABILITIES, TOOL_CAPABILITY, ACTION_LABEL, companionTools } from './companion-tools.mjs';
@@ -43,11 +44,32 @@ export class StaffPortal {
   async checkRun(run) { const p = await this.policy(run.residentId); if (p.paused) throw new CareError('COMPANION_PAUSED'); }
   async decision(run, tool, result, source = 'voice') {
     const row = { pk: orgPK, sk: `COMPANION_DECISION#${utc()}#${randomUUID()}`, version: 1, id: randomUUID(), created_at: utc(),
-      resident_id: run.residentId, run_id: run.id, workflow: run.workflow || 'clinical', action: ACTION_LABEL[tool] || 'Authorized clinical workflow tool', tool,
+      resident_id: run.residentId, run_id: run.id, workflow: run.workflow || 'clinical', action: ACTION_LABEL[tool] || 'Tool access check', tool, event_kind: source === 'staff' ? 'policy_change' : 'gateway_decision',
       decision: result.allowed ? 'Allowed' : 'Denied', reason: result.reason, rule: result.rule, policy_version: result.policy_version || null,
       agent_id: result.identity?.agent_id || `humanloop:${run.residentId}:${run.workflow || 'clinical'}`, print_id: result.identity?.print_id || null,
       grant_session: result.grant_session || null, audit_hash: result.audit_hash || null, source };
     await this.store.put(row); return row;
+  }
+  async recordAssistantBoundary(runId, turn) {
+    const boundary = responseBoundary(turn.text);
+    if (!boundary) return null;
+    return this.care.locks.with(runId, async () => {
+      const binding = this.care.bindings.get(runId);
+      if (!binding) throw new CareError('RUN_STOPPED');
+      const run = await this.store.get(binding.pk, `RUN#${runId}`);
+      if (!run || run.state !== 'ACTIVE' || run.leaseUntil <= this.clock() || run.human_expires_at <= this.clock()) throw new CareError('RUN_STOPPED');
+      const id = createHash('sha256').update(`${runId}:${turn.userTurnId || turn.id}:${boundary.kind}`).digest('hex').slice(0, 24);
+      const sk = `COMPANION_DECISION#RESPONSE#${id}`, prior = await this.store.get(orgPK, sk);
+      if (prior) return prior;
+      const row = { pk: orgPK, sk, id, version: 1, created_at: utc(), resident_id: run.residentId, run_id: run.id,
+        workflow: run.workflow || 'clinical', source: 'conversation', event_kind: 'assistant_refusal',
+        action: boundary.action, decision: 'Refused in conversation', rule: `spoken-refusal:${boundary.kind}`,
+        reason: 'The companion declined this request in its finalized spoken response. This is not a gateway authorization result.',
+        assistant_turn_id: turn.id, user_turn_id: turn.userTurnId || null,
+        policy_version: null, print_id: null, grant_session: null, audit_hash: null };
+      await this.store.transact([check(run, { equals: { state: 'ACTIVE' }, greater: { leaseUntil: this.clock(), expiresAt: this.clock() } }), put(row)]);
+      return row;
+    });
   }
   async authorizeClinical(state, tool, args) {
     const policy = await this.policy(state.run.residentId);
@@ -202,7 +224,7 @@ export class StaffPortal {
       if (!admin && consent.capabilities.help) requests.push(...rows.filter(r => r.sk.startsWith('SOCIAL_REQUEST#')));
       if (member.role === 'nurse') clinicalAlerts.push(...rows.filter(r => r.type === 'CareTask' && r.owner === member.subject).map(r => ({ id: r.id, residentId: rid, resident: profile.name, status: r.status, created_at: r.createdAt, title: r.summary.request, reported: r.summary.reported, recorded: r.summary.recorded, simulation: !!r.simulation, acknowledged_by: r.acknowledged_by })));
     }
-    const decisions = admin ? (await this.store.query(orgPK, 'COMPANION_DECISION#')).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80) : [];
+    const decisions = admin ? (await this.store.query(orgPK, 'COMPANION_DECISION#')).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80).map(d => ({ ...d, action: ACTION_LABEL[d.tool] || d.action, event_kind: d.event_kind || (d.source === 'staff' ? 'policy_change' : 'gateway_decision') })) : [];
     return { actor: { name: member.name, role: member.role, username: member.username }, profiles, requests: requests.sort((a, b) => b.created_at.localeCompare(a.created_at)), clinicalAlerts,
       activities: await this.store.query(orgPK, 'ACTIVITY#'), decisions, capabilities: CAPABILITIES, synthetic: true,
       staff: admin ? (await this.store.query(orgPK, 'MEMBER#')).filter(m => m.role !== 'resident').map(m => ({ name: m.name, role: m.role, active: m.active, assignments: m.assignments })) : [] };

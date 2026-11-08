@@ -9,9 +9,9 @@ Application-specific integrations have not been configured yet. Do not claim to 
 If asked to do something unavailable, explain that the integration needs to be configured. Never invent a tool result.`;
 
 export class SonicSession {
-  constructor({ transport, runner, emit, voice = 'tiffany', renewAfterMs = 420000, hardRenewMs = 465000, systemPrompt = SYSTEM_PROMPT, requiredTool, onFinalTurn, initialPrompt, diagnose = () => {} }) {
+  constructor({ transport, runner, emit, voice = 'tiffany', renewAfterMs = 420000, hardRenewMs = 465000, systemPrompt = SYSTEM_PROMPT, requiredTool, onFinalTurn, onFinalAssistantTurn, initialPrompt, diagnose = () => {} }) {
     Object.assign(this, { transport, runner, emit, voice, renewAfterMs, hardRenewMs });
-    Object.assign(this, { systemPrompt, requiredTool, onFinalTurn, initialPrompt, diagnose });
+    Object.assign(this, { systemPrompt, requiredTool, onFinalTurn, onFinalAssistantTurn, initialPrompt, diagnose });
     this.id = randomUUID();
     this.history = []; this.applicationInputs = new Set(initialPrompt ? [initialPrompt] : []);
     this.actions = [];
@@ -159,12 +159,16 @@ export class SonicSession {
       if (value.stopReason === 'INTERRUPTED') this.interrupt(c, value.contentId);
       const block = c.blocks.get(value.contentId);
       if (block?.text && !(block.role === 'USER' && (block.text === this.initialPrompt || this.applicationInputs.has(block.text))) && (block.stage === 'FINAL' || block.role === 'USER') && ['USER', 'ASSISTANT'].includes(block.role)) {
-        if (block.role === 'USER') c.lastUserFinalAt = Date.now();
+        if (block.role === 'USER') { c.lastUserFinalAt = Date.now(); this.userTurnId = value.contentId; }
         if (block.role === 'ASSISTANT') c.lastAssistantFinalAt = Date.now();
         if (block.role === 'USER' && this.onFinalTurn) { const started = Date.now(); await this.onFinalTurn({ text: block.text, id: value.contentId }); this.diagnose({ event: 'turn_saved', durationMs: Date.now() - started }); }
         this.history.push({ role: block.role, text: block.text });
         while (this.history.length > 60 || this.history.reduce((n, item) => n + item.text.length, 0) > 24000) this.history.shift();
         this.emit({ type: 'transcript', id: value.contentId, role: block.role, text: block.text, final: true });
+        if (block.role === 'ASSISTANT' && value.stopReason !== 'INTERRUPTED' && this.onFinalAssistantTurn) {
+          try { await this.onFinalAssistantTurn({ id: value.contentId, userTurnId: this.userTurnId || null, text: block.text }); }
+          catch { this.diagnose({ event: 'response_audit_unavailable' }); }
+        }
       }
       c.blocks.delete(value.contentId);
     }

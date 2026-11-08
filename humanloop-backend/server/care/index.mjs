@@ -233,7 +233,7 @@ wss.on('connection', async (ws, { principal, run, token }) => {
   ws.on('error', () => void stop());
   ws.on('close', () => { void stop(); void service.stopRun(principal, run.id).catch(() => {}); });
   try {
-    voice = run.workflow === 'social' ? await createCompanionVoice({ portal, run, emit, region: cloud.region }) : await createCareVoice({ service, run, principal, emit, region: cloud.region });
+    voice = run.workflow === 'social' ? await createCompanionVoice({ portal, run, emit, region: cloud.region }) : await createCareVoice({ service, portal, run, principal, emit, region: cloud.region });
     if (closed) { await voice.stop(); return; }
     await voice.session.start();
   } catch { emit({ type: 'error', message: 'Voice could not connect. Typed support and direct help remain available.' }); await stop(); }

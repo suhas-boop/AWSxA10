@@ -19,6 +19,7 @@ export async function createCompanionVoice({ portal, run, emit, region }) {
     initialPrompt: 'Application event, not resident speech: the resident started their everyday companion. Read get_companion_context and greet them warmly with one casual question.',
     hardRenewMs: 450000,
     diagnose: process.env.CAREALONG_VOICE_TRACE === '1' ? value => console.log(JSON.stringify({ companionTrace: true, ...value })) : undefined,
+    onFinalAssistantTurn: turn => portal.recordAssistantBoundary(run.id, turn),
     onFinalTurn: async turn => {
       const parts = [];
       for (let i = session.history.length - 1; i >= 0 && session.history[i].role === 'USER' && parts.length < 4; i--) parts.unshift(session.history[i].text);
