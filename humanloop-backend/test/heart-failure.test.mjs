@@ -7,6 +7,7 @@ import { CareWorkflow } from '../server/care/workflow.mjs';
 import { seedFixtures, people, residentPK } from '../server/care/fixtures.mjs';
 import { heartFailureFindings, weightChange, hasHeartFailureDemo } from '../server/care/heart-failure.mjs';
 import { validateDailyPlan } from '../server/care/daily-checkin.mjs';
+import { CheckinProgress } from '../server/care/checkin-progress.mjs';
 
 async function setup(username = 'margaret', gain = null) {
   const store = new MemoryStore(), subjects = Object.fromEntries(people.map(p => [p.username, `sub-${p.username}`]));
@@ -27,6 +28,24 @@ async function setup(username = 'margaret', gain = null) {
   const context = () => service.agentCall(run.id, 'get_checkin_context', {});
   return { store, service, person, senior, run, report, context };
 }
+
+test('a contextual yeah about extra pillows triggers the existing assessment workflow with verbatim evidence', async () => {
+  const c = await setup(), p = new CheckinProgress(); p.context(await c.context(), []);
+  p.assistant({ id: 'actual-question', text: 'Any need for an extra pillow?' });
+  const answer = p.user({ id: 'short-answer', text: 'yeah' });
+  const result = await c.service.report(c.senior, c.run.id, 'yeah', 'speech', 'short-answer', '', answer);
+  assert.equal(result.incident.findings.extra_pillows, true);
+  assert.equal(result.incident.route, 'prompt-assessment');
+  assert.equal(result.alert.alert.status, 'SIMULATED_DELIVERED');
+  const task = (await c.service.snapshot(c.person('sam'))).tasks[0];
+  assert.equal(task.summary.reported[0].quote, 'yeah');
+  assert.equal(task.summary.reported[0].in_response_to, 'Any need for an extra pillow?');
+  assert.deepEqual(task.summary.reported[0].question_turn_ids, ['actual-question']);
+  for (const text of ['got it', 'okay', 'got it']) await c.report(text);
+  const updated = (await c.service.snapshot(c.person('sam'))).tasks[0];
+  assert.equal(updated.version, task.version, 'acknowledgments must not resend the alert');
+  assert.equal(updated.summary.reported.length, 1);
+});
 
 test('two profiles expose their own baseline and questions, never preloaded scenario symptoms', async () => {
   for (const [username, name, weight] of [['margaret', 'Maggie', 150], ['robert', 'Bob', 172]]) {

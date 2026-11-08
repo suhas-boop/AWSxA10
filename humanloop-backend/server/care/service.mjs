@@ -215,7 +215,7 @@ export class CareService {
           patient_profile: stale ? null : record.patient_profile, medication_history: stale ? [] : record.medication_history || [], measurements: stale ? [] : record.measurements || [],
           source_ref: record.source_ref, stale, synthetic: true },
         incident: incident ? { id: incident.id, phase: incident.phase, route: incident.route, findings: incident.findings, protocol_version: record.demo_care_plan.id } : null,
-        evidence: evidence.filter(e => e.type === 'reported' && !e.superseded).map(({ id, statement, source_ref, finding_keys, utterance_context }) => ({ id, type: 'reported', statement, source_ref, finding_keys, utterance_context })),
+        evidence: evidence.filter(e => e.type === 'reported' && !e.superseded).map(({ id, statement, source_ref, finding_keys, utterance_context, in_response_to }) => ({ id, type: 'reported', statement, source_ref, finding_keys, utterance_context, in_response_to })),
         weight_change: stale ? null : weightChange(record, this.clock()),
         alert: alertTask ? { ...incident.alert_receipt, acknowledged_by: alertTask.acknowledged_by, task_status: alertTask.status, next_step: alertTask.next_step, assessment_status: alertTask.status === 'RESOLVED' ? 'REVIEW_RECORDED_BY_NURSE' : 'PENDING' } : null, alert_pending: !!incident?.alert_pending,
         question_mode: hf && incident.route !== 'clarify' ? 'heart_failure_checkin' : 'daily_checkin', next_question: null,
@@ -275,7 +275,7 @@ export class CareService {
     const evidence = (await Promise.all(incident.evidence_ids.map(eid => this.store.get(run.pk, `EVIDENCE#${eid}`)))).filter(Boolean);
     const seen = new Set();
     const reported = evidence.filter(e => e.type === 'reported' && e.clinical_relevance && !e.superseded && !seen.has(e.statement) && seen.add(e.statement))
-      .map(e => ({ id: e.id, quote: e.utterance_context || e.statement, segment_quote: e.statement, source_ref: e.source_ref, context_provenance: e.context_provenance || null, at: e.createdAt, findings: e.finding_keys || [], verification: 'Resident-reported; not independently measured' }));
+      .map(e => ({ id: e.id, quote: e.utterance_context || e.statement, segment_quote: e.statement, in_response_to: e.in_response_to || null, question_turn_ids: e.question_turn_ids || [], source_ref: e.source_ref, context_provenance: e.context_provenance || null, at: e.createdAt, findings: e.finding_keys || [], verification: 'Resident-reported; not independently measured' }));
     const change = weightChange(record, this.clock());
     const recorded = [
       { statement: `Known conditions: ${record.conditions.join(', ')}. Medication record: ${record.medications.join('; ')}.`, source_ref: record.source_ref, verification: 'User-supplied fictional care record', medication_history: record.medication_history || [] },

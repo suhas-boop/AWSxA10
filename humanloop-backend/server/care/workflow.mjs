@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { CareService, CareError } from './service.mjs';
 import { orgPK, residentPK, residents } from './fixtures.mjs';
 import { PROTOCOL, advance, detectTopic, explicitEmergency, questionFor, EMERGENCY, URGENT } from './rules.mjs';
+import { findingsForAnswer } from './checkin-progress.mjs';
 import acoustic from '../../config/acoustic.json' with { type: 'json' };
 import { hasHeartFailureDemo, heartFailureFindings, heartFailureRoute, weightChange } from './heart-failure.mjs';
 const id = prefix => `${prefix}_${randomUUID()}`;
@@ -52,15 +53,15 @@ export class CareWorkflow extends CareService {
       return { observed: true, incident_id: incident.id, question: questionFor(incident), candidate_count: incident.candidate_count };
     });
   }
-  async report(principal, runId, text, source = 'typed', turnId = id('turn'), speechPrefix = '') {
+  async report(principal, runId, text, source = 'typed', turnId = id('turn'), speechPrefix = '', spokenQuestion = null) {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new CareError('EXECUTION_FAILED', 400);
     const { run } = await this.ownedRun(principal, runId);
     const record = await this.store.get(run.pk, 'CONTEXT');
     if (!hasHeartFailureDemo(record) || ['head-injury', 'pharmacy'].includes(detectTopic(text))) return this.reportGeneral(principal, runId, text, source, turnId);
     const prefix = source === 'speech' && typeof speechPrefix === 'string' ? speechPrefix.slice(-4000) : '';
-    const result = await this.reportHeartFailure(principal, runId, text, source, turnId, record, prefix);
+    const result = await this.reportHeartFailure(principal, runId, text, source, turnId, record, prefix, source === 'speech' ? spokenQuestion : null);
     if (result.general) return this.reportGeneral(principal, runId, text, source, turnId);
-    if (result.incident && result.incident.route !== 'clarify') {
+    if (!result.duplicate && result.incident && result.incident.route !== 'clarify' && (result.evidence_saved !== false || result.incident.alert_pending)) {
       // Execute the same permission-checked tool used by the model. Only this explicit,
       // synthetic care plan permits automatic simulated notification; never a real call.
       try { result.alert = await this.agentCall(runId, 'propose_follow_up', { incident_id: result.incident.id, assistance: 'Execute the authorized simulated care-plan alert.' }); }
@@ -68,7 +69,7 @@ export class CareWorkflow extends CareService {
     }
     return result;
   }
-  async reportHeartFailure(principal, runId, text, source, turnId, record, speechPrefix) {
+  async reportHeartFailure(principal, runId, text, source, turnId, record, speechPrefix, spokenQuestion) {
     return this.locks.with(runId, async () => {
       const { run } = await this.ownedRun(principal, runId);
       const key = createHash('sha256').update(`${runId}:${turnId}`).digest('hex');
@@ -76,14 +77,21 @@ export class CareWorkflow extends CareService {
       if (await this.store.get(run.pk, `TURN#${key}`)) return { duplicate: true, incident: old?.topic === 'heart-failure' ? old : null };
       if (old && !['cough', 'heart-failure'].includes(old.topic)) return { general: true };
       const spokenContext = speechPrefix ? `${speechPrefix} ${text}` : text;
-      let found = heartFailureFindings(spokenContext, old?.findings);
+      let found = { ...findingsForAnswer(text, spokenQuestion), ...heartFailureFindings(spokenContext, old?.findings) };
       if (old?.topic === 'cough' && old.phase === 'source' && /^(yes|yeah|yep|it was me|that was me)\b/i.test(text)) found = { ...found, cough: true };
       const change = weightChange(record, this.clock());
       if (old?.topic === 'cough' && !Object.keys(found).length && !(change?.increase_lb > 3)) return { general: true };
       const marker = { kind: 'put', item: { pk: run.pk, sk: `TURN#${key}`, version: 1 }, expectedVersion: null };
       if (!old && !Object.keys(found).length && !(change?.increase_lb > 3)) { await this.store.transact([marker]); return { evidence_saved: false }; }
+      // Acknowledgments and social chat do not create a new clinical revision or
+      // resend the same handoff. Keep the existing findings and delivery receipt.
+      if (old?.topic === 'heart-failure' && !Object.keys(found).length && !/cough|breath|pillows?|ankles?|swelling|weight|pounds|\blb\b|chest|tired/i.test(text) && !(change?.increase_lb > 3)) {
+        await this.store.transact([marker]); return { incident: old, evidence_saved: false };
+      }
       const evidence = this.evidence(run, 'reported', text.trim(), `${source}:final:${turnId}`, {
         finding_keys: Object.keys(found), utterance_context: speechPrefix ? spokenContext : null,
+        in_response_to: spokenQuestion?.question || null,
+        question_turn_ids: spokenQuestion?.assistant_turn_ids || [],
         context_provenance: speechPrefix ? 'Consecutive final resident speech blocks from this same authenticated voice session; current segment preserved in statement' : null,
         clinical_relevance: Object.keys(found).length > 0 || /cough|breath|pillows?|ankles?|swelling|weight|pounds|\blb\b|chest|tired/i.test(text),
       });
