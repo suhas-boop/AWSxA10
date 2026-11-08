@@ -1,0 +1,7 @@
+PyJWT>=2.8
+cryptography>=42
+starlette>=0.37
+uvicorn>=0.29
+requests>=2.31
+# live mode (Claude on Amazon Bedrock); the project runs without it and falls back to Replay
+boto3>=1.35

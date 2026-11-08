@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hospice Agent Access</title>
+<style>
+:root{
+  --bg:#f4f6f5; --panel:#ffffff; --panel2:#f7f9f8; --line:#dfe5e2; --text:#17221e; --muted:#5f6f69;
+  --accent:#0f766e; --accent-soft:#e3f2ef; --allow:#15803d; --deny:#b45309; --block:#b91c1c; --info:#1d4ed8; --bg-glass:#7e22ce;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1513; --panel:#151d1a; --panel2:#1a2420; --line:#27332e; --text:#e5ece9; --muted:#8ea29a;
+  --accent:#2dd4bf; --accent-soft:#11302b; --allow:#4ade80; --deny:#fbbf24; --block:#f87171; --info:#93c5fd; --bg-glass:#d8b4fe;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+.logo{width:32px;height:32px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+h1{font-size:16px;margin:0;font-weight:650}
+.sub{color:var(--muted);font-size:12.5px}
+.right{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.pill{font:12px var(--mono);padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel)}
+.pill.ok{color:var(--allow)}.pill.bad{color:var(--block)}
+main{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;padding:16px 22px;max-width:1500px;margin:0 auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.full{grid-column:1/-1}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:0 0 10px;font-weight:600}
+button{font:inherit;font-size:13px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:6px 11px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--block);border-color:color-mix(in srgb,var(--block) 40%,var(--line))}
+button:disabled{opacity:.45;cursor:not-allowed}
+textarea{width:100%;font:inherit;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:10px;resize:vertical}
+.ev.agent{background:var(--accent-soft)}
+select{max-width:100%;font:inherit;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.controls label{color:var(--muted);font-size:12.5px}
+.events{display:flex;flex-direction:column;gap:6px;max-height:560px;overflow:auto}
+.ev{display:grid;grid-template-columns:80px 1fr;gap:10px;padding:8px 10px;border-radius:8px;background:var(--panel2);border-left:3px solid var(--line)}
+.ev .tag{font:600 11px var(--mono);text-transform:uppercase;padding-top:2px}
+.ev .l{font-weight:550}.ev .d{color:var(--muted);font-size:12.5px;word-break:break-word}
+.agent{--c:var(--accent)}
+.allow{--c:var(--allow)}.deny{--c:var(--deny)}.blocked,.revoke{--c:var(--block)}.info{--c:var(--info)}.break-glass{--c:var(--bg-glass)}
+.ev{border-left-color:var(--c)}.ev .tag{color:var(--c)}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
+.chip{font:11.5px var(--mono);padding:2px 7px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
+.chip.no{background:color-mix(in srgb,var(--deny) 14%,transparent);color:var(--deny)}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--panel2)}
+.card.dead{border-color:color-mix(in srgb,var(--block) 45%,var(--line))}
+.top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.mono{font-family:var(--mono);font-size:12px}.muted{color:var(--muted)}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.status{font:600 11px var(--mono);padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c)}
+dl.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px;margin:0 0 12px}dl.kv dt{color:var(--muted)}dl.kv dd{margin:0}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.scroll{max-height:420px;overflow:auto}
+td.nw{white-space:nowrap}
+main>section{overflow-x:auto}
+.gates{display:flex;gap:3px;flex-wrap:wrap}
+.g{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;cursor:help}
+.g.pass{background:var(--allow)}.g.fail{background:var(--block)}.g.pending{background:var(--deny)}.g.skipped{background:var(--line);color:var(--muted)}
+.dec{font:600 11px var(--mono);text-transform:uppercase;color:var(--c)}
+.split{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.nokey{padding:40px;text-align:center;color:var(--muted)}
+
+.devwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.tablet{background:#1f2a26;border-radius:22px;padding:14px;box-shadow:inset 0 0 0 2px #33423c}
+.screen{background:#fbfaf6;color:#1d2622;border-radius:12px;padding:14px;min-height:380px;max-height:460px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+.screen .who{font-size:12px;color:#6b7a73;margin-bottom:2px}
+.bub{max-width:88%;padding:10px 14px;border-radius:14px;font-size:17px;line-height:1.4}
+.bub.me{align-self:flex-end;background:#dbeee9;border-bottom-right-radius:4px}
+.bub.ai{align-self:flex-start;background:#fff;border:1px solid #e3e6e1;border-bottom-left-radius:4px}
+.pol{align-self:center;font:11.5px var(--mono);padding:3px 9px;border-radius:999px;background:#eef1ee;color:#4a5852;max-width:96%;text-align:center}
+.pol.deny{background:#fdf1e1;color:#8a4b06}.pol.blocked{background:#fde7e7;color:#9b1c1c}.pol.allow{background:#e6f4ea;color:#1c6b37}
+.tbar{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.tbar button{background:#2c3a35;border-color:#3b4c45;color:#e9efec}
+.tbar input,.tbar select{background:#2c3a35;border:1px solid #3b4c45;color:#e9efec;border-radius:8px;padding:5px 8px;font:inherit;font-size:13px}
+.tablet textarea{background:#2c3a35;border-color:#3b4c45;color:#e9efec;margin:10px 0 0}
+@media (max-width:960px){.devwrap{grid-template-columns:1fr}}
+@media (max-width:960px){main{grid-template-columns:1fr;padding:12px 16px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AP</div>
+  <div><h1>AgenticPrint for Hospice</h1><div class="sub">Identity &amp; access for AI agents · <span id="tenant">—</span> · synthetic data only</div></div>
+  <div class="right"><span id="chain" class="pill">audit chain —</span><span id="count" class="pill">0 events</span></div>
+</header>
+<div id="nokey" class="nokey" hidden>Open the console with the URL the server printed (it includes <span class="mono">#key=…</span>).</div>
+<main id="app">
+  <section>
+    <h2>Live agent task · home-visit prep</h2>
+    <div class="controls">
+      <label>Brain</label>
+      <select id="mode">
+        <option value="bedrock">Live · Amazon Bedrock model</option>
+        <option value="replay">Replay · scripted model (offline)</option>
+        <option value="scripted">Fixed steps (no model)</option>
+      </select>
+      <span id="llminfo" class="mono muted"></span>
+    </div>
+    <textarea id="instruction" rows="4" aria-label="Clinician request to the agent"></textarea>
+    <div class="controls">
+      <label>Sponsor</label>
+      <select id="sponsor"></select>
+      <label>Step delay</label>
+      <select id="delay"><option>1</option><option selected>2</option><option>3.5</option></select>
+      <button class="primary" id="run">Run agent</button>
+    </div>
+    <div class="events" id="events"><div class="empty">Run the task, then revoke the agent from Sessions while it works.</div></div>
+  </section>
+
+  <section>
+    <h2>Registered agent</h2>
+    <dl class="kv" id="agent"></dl>
+    <h2>Sessions</h2>
+    <div id="sessions"><div class="empty">No sessions yet.</div></div>
+    <h2 style="margin-top:12px">Active revocations</h2>
+    <div id="revs"><div class="empty">None.</div></div>
+  </section>
+
+
+  <section class="full">
+    <h2>Patient companion device · bound to one patient</h2>
+    <div class="devwrap">
+      <div class="tablet">
+        <div class="screen" id="screen"><div class="pol">Eleanor's kitchen tablet · ask a question below</div></div>
+        <textarea id="cprompt" rows="3" aria-label="What the patient says"></textarea>
+        <div class="tbar">
+          <select id="cdev" aria-label="Device"></select>
+          <input id="cpin" size="6" aria-label="PIN" placeholder="PIN">
+          <select id="cmode" aria-label="Brain"><option value="bedrock">Live · Bedrock</option><option value="replay" selected>Replay</option></select>
+          <button id="cask">Ask</button>
+          <button id="cprobe" title="Bypasses the model: the device itself requests P-1003">Try to read P-1003</button>
+        </div>
+      </div>
+      <div>
+        <h2>Paired devices</h2>
+        <div class="scroll"><table><thead><tr><th>Device</th><th>Bound to</th><th>Status</th><th>Paired by</th><th></th></tr></thead><tbody id="devs"></tbody></table></div>
+        <h2 style="margin-top:14px">Pair a new device</h2>
+        <div class="controls">
+          <select id="ppat"><option value="P-1003">P-1003 · Rosa Delgado</option><option value="P-1002">P-1002 · Harold Kim</option><option value="P-2001">P-2001 · Walter Okonkwo</option></select>
+          <select id="pclin"><option value="grace.okafor">by Grace Okafor, RN</option><option value="alan.brooks">by Dr. Alan Brooks</option><option value="maya.chen">by Maya Chen, aide</option></select>
+          <button id="ppair">Pair (PIN 1357)</button>
+        </div>
+        <div id="pmsg" class="muted" style="font-size:12.5px"></div>
+        <p class="muted" style="font-size:12.5px;margin-top:12px">The RN orchestrator talks to companions only through <span class="mono">companion.dispatch</span> and <span class="mono">inbox.read_reports</span>; no credentials are shared. Revoking one agent never revokes the other.</p>
+      </div>
+    </div>
+  </section>
+  <section class="full">
+    <h2>Workforce · onboarding gates and status</h2>
+    <div class="split" id="cands"></div>
+    <div class="scroll"><table><thead><tr><th>Staff member</th><th>Role</th><th>Status</th><th>Onboarding gates</th><th>License</th><th>Caseload</th><th></th></tr></thead><tbody id="staff"></tbody></table></div>
+  </section>
+
+  <section class="full">
+    <div class="top"><h2>Audit trail · hash-chained, newest first</h2>
+      <div class="controls" style="margin:0"><label>Patient access report</label>
+        <select id="pfilter"><option value="">All events</option><option>P-1001</option><option>P-1002</option><option>P-1003</option><option>P-2001</option></select></div></div>
+    <div class="scroll"><table><thead><tr><th>#</th><th>Event</th><th>Decision</th><th>Who</th><th>Patient</th><th>Tool</th><th>Reason</th><th>Hash</th></tr></thead><tbody id="audit"></tbody></table></div>
+  </section>
+</main>
+<script>
+const key = new URLSearchParams(location.hash.slice(1)).get("key");
+if(!key){document.getElementById("nokey").hidden=false;document.getElementById("app").hidden=true;}
+const H={"Content-Type":"application/json","X-Admin-Key":key||""};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const post=(u,b)=>fetch(u,{method:"POST",headers:H,body:JSON.stringify(b||{})}).then(r=>r.json());
+const GLYPH={pass:"✓",fail:"✕",pending:"…",skipped:"–"};
+const CAND={"jordan.lee":"Jordan Lee, RN (passes)","tom.reyes":"Tom Reyes, aide (OIG exclusion match)","kelly.nash":"Kelly Nash, RN (expired license)"};
+
+$("run").onclick=()=>post("/admin/run-task",{sponsor:$("sponsor").value,step_delay:+$("delay").value,mode:$("mode").value,instruction:$("instruction").value}).then(tick);
+$("mode").onchange=()=>{$("instruction").hidden=$("mode").value==="scripted";};
+window.revoke=(kind,value,label)=>{const r=prompt(`Revoke ${label}?\nReason:`,"Unusual access pattern flagged by privacy monitoring");
+  if(r!==null) post("/admin/revoke",{kind,value,reason:r,by:"nina.ross"}).then(tick);};
+window.lift=(kind,value)=>post("/admin/reinstate",{kind,value}).then(tick);
+window.onboard=c=>post("/admin/onboard",{candidate:c}).then(tick);
+window.offboard=u=>{const r=prompt(`Offboard ${u}? This disables the account, revokes every agent they sponsor, and removes them from care teams.\nReason:`,"Employment ended");
+  if(r!==null) post("/admin/offboard",{username:u,reason:r}).then(tick);};
+window.sweep=()=>post("/admin/compliance-sweep").then(r=>{alert(r.actions.length?r.actions.map(a=>`${a.action.toUpperCase()} ${a.username}: ${a.reason}`).join("\n"):"No findings.");tick();});
+$("pfilter").onchange=()=>{lastAudit="";tick();};
+
+let lastEvents=-1,lastAudit="",lastSponsors="";
+function render(s){
+  $("tenant").textContent=s.tenant;
+  $("chain").textContent=s.audit.chain_ok?"audit chain verified":`chain broken at #${s.audit.first_bad}`;
+  $("chain").className="pill "+(s.audit.chain_ok?"ok":"bad");
+  $("count").textContent=`${s.audit.count} events`;
+  $("run").disabled=s.task.running;
+  if(!$("instruction").value) $("instruction").value=s.llm.default_instruction;
+  $("llminfo").textContent=s.llm.boto3?`${s.llm.model} · ${s.llm.region}`:"boto3 not installed: live mode falls back to Replay";
+
+  const sp=s.staff.map(m=>m.username+m.status).join();
+  if(sp!==lastSponsors){lastSponsors=sp;const cur=$("sponsor").value||"grace.okafor";
+    $("sponsor").innerHTML=s.staff.filter(m=>m.status!=="pending").map(m=>`<option value="${esc(m.username)}" ${m.username===cur?"selected":""}>${esc(m.name)} · ${esc(m.role_label)}</option>`).join("");}
+
+  const a=s.agent;
+  $("agent").innerHTML=`<dt>Agent</dt><dd>${esc(a.name)}</dd><dt>Print</dt><dd class="mono">${esc(a.print)}</dd>
+    <dt>Ceiling</dt><dd class="mono">${a.ceiling.map(esc).join(", ")}</dd><dt>Sponsors</dt><dd class="mono">${a.sponsor_roles.map(esc).join(", ")}</dd>`;
+
+  const ev=s.task.events;
+  if(ev.length!==lastEvents){lastEvents=ev.length;
+    $("events").innerHTML=ev.length?ev.map(e=>{
+      const ex=e.granted?`<div class="chips">${e.granted.map(t=>`<span class="chip">✓ ${esc(t)}</span>`).join("")}${Object.entries(e.withheld||{}).map(([t,r])=>`<span class="chip no" title="${esc(r)}">✕ ${esc(t)}</span>`).join("")}</div>`:"";
+      return `<div class="ev ${esc(e.kind)}"><div class="tag">${esc(e.kind)}</div><div><div class="l">${esc(e.label)}</div><div class="d">${esc(e.detail)}</div>${ex}</div></div>`;}).join("")+(s.task.running?`<div class="empty">Agent working…</div>`:"")
+      :`<div class="empty">Run the task, then revoke the agent from Sessions while it works.</div>`;
+    $("events").scrollTop=$("events").scrollHeight;}
+
+  $("sessions").innerHTML=s.sessions.length?s.sessions.map(x=>{const dead=!!x.revoked||x.expired;
+    const st=x.revoked?`REVOKED · ${esc(x.revoked.kind)}`:(x.expired?"EXPIRED":(x.break_glass?"LIVE · BREAK-GLASS":"LIVE"));
+    return `<div class="card ${dead?"dead":""}"><div class="top"><div><b>${esc(x.agent_name)}</b> <span class="muted">for</span> ${esc(x.sponsor_name)}</div>
+      <span class="status ${x.revoked?"revoke":(x.expired?"deny":"allow")}">${st}</span></div>
+      <div class="mono muted">${esc(x.sid)} · ${x.calls} calls · ${esc(x.purpose)} · ${esc(x.task)}</div>
+      <div class="chips">${x.tools.map(t=>`<span class="chip">${esc(t)}</span>`).join("")}</div>
+      ${dead?`<div class="muted" style="font-size:12.5px">${x.revoked?"Reason: "+esc(x.revoked.reason):"Token expired"}</div>`:`<div class="actions">
+      <button class="danger" onclick="revoke('agent','${esc(x.agent)}','the agent everywhere')">Revoke agent</button>
+      <button class="danger" onclick="revoke('session','${esc(x.sid)}','this session')">Revoke session</button>
+      <button class="danger" onclick="revoke('print','${esc(x.print)}','this agent build')">Quarantine print</button></div>`}</div>`;}).join(""):`<div class="empty">No sessions yet.</div>`;
+
+  $("revs").innerHTML=s.revocations.length?s.revocations.map(r=>`<div class="card"><div class="top"><span class="mono">${esc(r.kind)}: ${esc(r.value)}</span>
+    <button onclick="lift('${esc(r.kind)}','${esc(r.value)}')">Lift</button></div><div class="muted" style="font-size:12.5px">${esc(r.reason)} — ${esc(r.by)}</div></div>`).join(""):`<div class="empty">None.</div>`;
+
+  $("cands").innerHTML=s.candidates.map(c=>`<button onclick="onboard('${esc(c)}')">Onboard ${esc(CAND[c]||c)}</button>`).join("")+`<button onclick="sweep()">Run compliance sweep</button>`;
+  const stc={active:"allow",pending:"deny",suspended:"blocked",terminated:"blocked"};
+  $("staff").innerHTML=s.staff.map(m=>`<tr><td><b>${esc(m.name)}</b><div class="mono muted">${esc(m.username)}</div></td>
+    <td>${esc(m.role_label)}</td><td><span class="status ${stc[m.status]}">${esc(m.status.toUpperCase())}</span><div class="muted" style="font-size:12px;max-width:260px">${m.status==="active"?"":esc(m.status_reason)}</div></td>
+    <td><div class="gates">${m.onboarding.map(g=>`<span class="g ${esc(g.status)}" title="${esc(g.label)} — ${esc(g.ref)}\n${esc(g.status)}: ${esc(g.detail)}">${GLYPH[g.status]}</span>`).join("")}</div></td>
+    <td class="mono">${m.license?esc(m.license.type+" · exp "+m.license.expires):"<span class='muted'>n/a</span>"}</td>
+    <td class="mono">${m.caseload.map(esc).join(", ")||"<span class='muted'>—</span>"}</td>
+    <td>${m.status==="active"?`<button class="danger" onclick="offboard('${esc(m.username)}')">Offboard</button>`:""}</td></tr>`).join("");
+
+  const pf=$("pfilter").value;
+  const rows=s.audit.tail.filter(r=>!pf||r.patient===pf).slice().reverse();
+  const sig=pf+rows.length+(rows[0]&&rows[0].seq);
+  if(sig!==lastAudit){lastAudit=sig;
+    $("audit").innerHTML=rows.map(r=>`<tr><td class="mono muted">${r.seq}</td><td class="mono">${esc(r.event)}</td>
+      <td class="dec ${esc(r.decision)}">${esc(r.decision)}</td><td class="mono">${esc(r.sponsor||r.staff||r.actor||"")}${r.agent?`<div class="muted">via ${esc(r.agent)}</div>`:""}</td>
+      <td class="mono nw">${esc(r.patient||"")}</td><td class="mono">${esc(r.tool||r.gate||r.target||"")}</td><td>${esc(r.reason||"")}${r.withheld_fields?`<div class="muted">withheld: ${r.withheld_fields.map(esc).join(", ")}</div>`:""}</td>
+      <td class="mono muted" title="${esc(r.hash)}">${esc(r.hash.slice(0,10))}…</td></tr>`).join("");}
+}
+
+$("cask").onclick=()=>post("/admin/companion/ask",{device_id:$("cdev").value,pin:$("cpin").value,mode:$("cmode").value,prompt:$("cprompt").value,clear:true}).then(r=>{if(r.error)alert(r.error);tick();});
+$("cprobe").onclick=()=>post("/admin/companion/probe",{device_id:$("cdev").value,pin:$("cpin").value,target:"P-1003"}).then(tick);
+$("ppair").onclick=()=>post("/admin/devices/pair",{patient_id:$("ppat").value,clinician:$("pclin").value,label:$("ppat").selectedOptions[0].text.split(" · ")[1]+"'s tablet",pin:"1357"}).then(r=>{$("pmsg").textContent=r.error?("Refused: "+r.error):(`Paired ${r.device_id} to ${r.patient_id} (PIN 1357)`);tick();});
+window.lost=d=>post("/admin/devices/lost",{device_id:d}).then(tick);
+window.discharge=p=>{if(confirm(`Discharge ${p}? Every companion device for this patient stops.`))post("/admin/devices/discharge",{patient_id:p,reason:"patient discharged from hospice"}).then(tick);};
+let lastComp=-1,lastDevs="";
+function renderCompanion(s){
+  const c=s.companion;
+  if(!$("cprompt").value) $("cprompt").value=c.default_instruction;
+  if(!$("cpin").value) $("cpin").value=c.demo_pin;
+  const dsig=s.devices.map(d=>d.device_id+d.status).join();
+  if(dsig!==lastDevs){lastDevs=dsig;const cur=$("cdev").value;
+    $("cdev").innerHTML=s.devices.map(d=>`<option value="${esc(d.device_id)}" ${d.device_id===cur?"selected":""}>${esc(d.label)} (${esc(d.patient_id)})</option>`).join("");
+    const st={active:"allow",locked:"deny",lost:"blocked",discharged:"blocked"};
+    $("devs").innerHTML=s.devices.map(d=>`<tr><td>${esc(d.label)}<div class="mono muted">${esc(d.agent_id)}</div></td><td class="mono nw">${esc(d.patient_id)} · ${esc(d.patient_name)}</td>
+      <td><span class="status ${st[d.status]}">${esc(d.status.toUpperCase())}</span></td><td class="mono">${esc(d.paired_by)}</td>
+      <td>${d.status==="active"?`<button class="danger" onclick="lost('${esc(d.device_id)}')">Report lost</button> <button class="danger" onclick="discharge('${esc(d.patient_id)}')">Discharge</button>`:""}</td></tr>`).join("");}
+  $("cask").disabled=c.running;
+  if(c.events.length===lastComp) return; lastComp=c.events.length;
+  $("screen").innerHTML=(c.events.length?c.events.map(e=>{
+    if(e.kind==="agent") return `<div class="bub ai"><div class="who">Companion</div>${esc(e.detail)}</div>`;
+    if(e.label==="Request") return `<div class="bub me"><div class="who">Eleanor</div>${esc(e.detail)}</div>`;
+    if(e.tool||e.who==="probe") return `<div class="pol ${esc(e.kind)}">${esc(e.kind.toUpperCase())} · ${esc(e.label)}${e.kind!=="allow"?" — "+esc(e.detail):""}</div>`;
+    return `<div class="pol ${esc(e.kind)}">${esc(e.label)}${e.kind==="info"&&e.label.startsWith("Run")?" · "+esc(e.detail):""}</div>`;
+  }).join(""):`<div class="pol">Eleanor's kitchen tablet · ask a question below</div>`)+(c.running?`<div class="pol">…</div>`:"");
+  $("screen").scrollTop=$("screen").scrollHeight;
+}
+async function tick(){if(!key)return;try{const r=await fetch("/admin/state",{headers:H});if(r.ok){const st=await r.json();render(st);renderCompanion(st);}}catch(e){}}
+tick();setInterval(tick,800);
+</script>
+</body>
+</html>
