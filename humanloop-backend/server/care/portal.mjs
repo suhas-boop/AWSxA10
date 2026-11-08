@@ -127,7 +127,7 @@ export class StaffPortal {
         if (name === 'get_companion_context') Object.assign(result, { resident: state.profile.name, profile: state.profile, capabilities: state.policy.capabilities, consent: state.consent.sharing,
           requests: state.policy.capabilities.help && state.consent.capabilities.help ? (await this.store.query(state.run.pk, 'SOCIAL_REQUEST#')).filter(r => r.run_id === runId).map(r => ({ id: r.id, status: r.status, reply_available: !!r.reply })) : [], clinical_access: false });
         if (name === 'read_activity_schedule') result.activities = (await this.store.query(orgPK, 'ACTIVITY#')).map(({ id, title, when, location }) => ({ id, title, when, location }));
-        if (name === 'check_friend_attendance') { extra.push(check(share), check(activity)); Object.assign(result, { friend: share.name, activity: activity.title, attending: share.attending, source: 'Attendance explicitly shared with this resident', shared_at: share.recorded_at }); }
+        if (name === 'check_friend_attendance') { extra.push(check(share), check(activity)); Object.assign(result, { friend: share.name, activity_id: activity.id, activity: activity.title, when: activity.when, location: activity.location, attending: share.attending, source: 'Attendance explicitly shared with this resident', shared_at: share.recorded_at, scope: 'This shared activity only; not a complete private schedule' }); }
         if (name === 'read_personal_reminders') result.reminders = (await this.store.query(state.run.pk, 'SOCIAL_REMINDER#')).filter(r => r.approved).map(({ id, text, approved_by }) => ({ id, text, approved_by }));
         if (name === 'request_caregiver_help') {
           const speech = this.speech.get(runId), quote = normalize(args.quote);

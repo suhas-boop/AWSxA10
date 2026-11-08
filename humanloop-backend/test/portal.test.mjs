@@ -32,6 +32,20 @@ test('AgentPrint checks changed policy on the same signed grant', async t => {
   const decisions = (await store.query(orgPK, 'COMPANION_DECISION#')).filter(d => d.tool === 'check_friend_attendance');
   assert.equal(decisions[0].grant_session, decisions[1].grant_session); assert.ok(decisions.every(d => d.audit_hash));
 });
+test('shared schedule includes only authorized activity details and leaves unshared plans unknown', async t => {
+  const { portal, run, person, care } = await setup(t);
+  const publicSchedule = await portal.call(run.id, 'read_activity_schedule', {});
+  assert.equal(publicSchedule.ok, true);
+  const bingo = await portal.call(run.id, 'check_friend_attendance', { friend: 'Rose', activity_id: 'bingo' });
+  assert.equal(bingo.ok, true); assert.equal(bingo.when, 'Tomorrow · 3:00 PM'); assert.equal(bingo.location, 'Sunroom');
+  assert.match(bingo.scope, /not a complete private schedule/);
+  const garden = await portal.call(run.id, 'check_friend_attendance', { friend: 'Rose', activity_id: 'garden' });
+  assert.equal(garden.rule, 'attendance-consent'); assert.equal(garden.attending, undefined);
+  assert.equal((await portal.call(run.id, 'check_friend_attendance', { friend: 'Rose', activity_id: 'bingo' })).ok, true);
+  const bob = await care.startRun(person('robert'), true, 'social');
+  const denied = await portal.call(bob.id, 'check_friend_attendance', { friend: 'Rose', activity_id: 'bingo' });
+  assert.equal(denied.ok, false); assert.equal(denied.when, undefined); assert.equal(denied.location, undefined);
+});
 test('admin permission cannot override consent or expose clinical tools to social sessions', async t => {
   const { portal, care, run, person, store } = await setup(t);
   const row = await store.get(run.pk, 'SOCIAL_CONSENT'); await store.put({ ...row, version: row.version + 1, capabilities: { ...row.capabilities, attendance: false } });
