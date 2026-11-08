@@ -1,0 +1,50 @@
+{
+  "at": "2026-11-08T01:10:07.671Z",
+  "threshold": 0.8,
+  "candidates": [
+    {
+      "threshold": 0.8,
+      "trueClips": 1,
+      "falseClips": 0
+    },
+    {
+      "threshold": 0.65,
+      "trueClips": 2,
+      "falseClips": 1
+    },
+    {
+      "threshold": 0.5,
+      "trueClips": 2,
+      "falseClips": 2
+    },
+    {
+      "threshold": 0.35,
+      "trueClips": 2,
+      "falseClips": 3
+    }
+  ],
+  "developmentFiles": [
+    "1-19111-A-24.wav",
+    "1-19118-A-24.wav",
+    "1-30830-A-24.wav",
+    "1-52266-A-24.wav",
+    "1-1791-A-26.wav",
+    "1-30039-A-26.wav",
+    "1-30043-A-26.wav",
+    "1-33658-A-26.wav",
+    "1-18631-A-23.wav",
+    "1-30709-A-23.wav",
+    "1-36393-A-23.wav",
+    "1-36397-A-23.wav",
+    "1-26143-A-21.wav",
+    "1-29680-A-21.wav",
+    "1-31748-A-21.wav",
+    "1-47273-A-21.wav"
+  ],
+  "scope": "Tiny source-separated engineering smoke set; not clinical calibration",
+  "windowSamples": 15600,
+  "hopSamples": 7680,
+  "sampleRate": 16000,
+  "clinicalValidation": false,
+  "thresholdStatus": "Frozen from 16 ESC-50 development clips before 16 held-out clips; engineering smoke evaluation only"
+}

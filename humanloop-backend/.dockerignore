@@ -1,0 +1,11 @@
+node_modules
+.npm-cache
+dist
+.env
+.env.*
+.git
+data
+test
+*.log
+.carealong-secrets.json
+.carealong-cloud.json

@@ -1,0 +1,76 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Nova voice backend: AgentCore Runtime, execution role, and DynamoDB state. Requires an existing ARM64 ECR image and OIDC identity provider.",
+  "Parameters": {
+    "RuntimeName": { "Type": "String", "Default": "nova_voice_agent", "AllowedPattern": "[a-zA-Z][a-zA-Z0-9_]{0,27}" },
+    "ImageUri": { "Type": "String", "Description": "Existing ARM64 container URI in ECR; prefer an immutable image digest." },
+    "EcrRepositoryArn": { "Type": "String" },
+    "JwtDiscoveryUrl": { "Type": "String" },
+    "JwtIssuer": { "Type": "String" },
+    "JwtAudience": { "Type": "String" },
+    "JwtJwksUrl": { "Type": "String" },
+    "JwtScope": { "Type": "String", "Default": "voice:connect" },
+    "FrontendOrigin": { "Type": "String", "Default": "http://localhost:5173" }
+  },
+  "Resources": {
+    "StateTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [{ "AttributeName": "pk", "AttributeType": "S" }, { "AttributeName": "sk", "AttributeType": "S" }],
+        "KeySchema": [{ "AttributeName": "pk", "KeyType": "HASH" }, { "AttributeName": "sk", "KeyType": "RANGE" }],
+        "SSESpecification": { "SSEEnabled": true },
+        "PointInTimeRecoverySpecification": { "PointInTimeRecoveryEnabled": true },
+        "TimeToLiveSpecification": { "AttributeName": "expiresAt", "Enabled": true }
+      }
+    },
+    "ExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "AmazonBedrockAgentCoreSDKRuntime-${RuntimeName}" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{ "Effect": "Allow", "Principal": { "Service": "bedrock-agentcore.amazonaws.com" }, "Action": "sts:AssumeRole",
+            "Condition": { "StringEquals": { "aws:SourceAccount": { "Ref": "AWS::AccountId" } }, "ArnLike": { "aws:SourceArn": { "Fn::Sub": "arn:${AWS::Partition}:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*" } } } }]
+        },
+        "Policies": [{
+          "PolicyName": "VoiceRuntime",
+          "PolicyDocument": { "Version": "2012-10-17", "Statement": [
+            { "Effect": "Allow", "Action": ["bedrock:InvokeModel"], "Resource": { "Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/amazon.nova-2-sonic-v1:0" } },
+            { "Effect": "Allow", "Action": ["dynamodb:GetItem", "dynamodb:PutItem"], "Resource": { "Fn::GetAtt": ["StateTable", "Arn"] } },
+            { "Effect": "Allow", "Action": ["ecr:GetAuthorizationToken"], "Resource": "*" },
+            { "Effect": "Allow", "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], "Resource": { "Ref": "EcrRepositoryArn" } },
+            { "Effect": "Allow", "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"], "Resource": { "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*" } },
+            { "Effect": "Allow", "Action": ["logs:DescribeLogGroups"], "Resource": "*" }
+          ] }
+        }]
+      }
+    },
+    "Runtime": {
+      "Type": "AWS::BedrockAgentCore::Runtime",
+      "Properties": {
+        "AgentRuntimeName": { "Ref": "RuntimeName" },
+        "AgentRuntimeArtifact": { "ContainerConfiguration": { "ContainerUri": { "Ref": "ImageUri" } } },
+        "RoleArn": { "Fn::GetAtt": ["ExecutionRole", "Arn"] },
+        "NetworkConfiguration": { "NetworkMode": "PUBLIC" },
+        "ProtocolConfiguration": "HTTP",
+        "AuthorizerConfiguration": { "CustomJWTAuthorizer": {
+          "DiscoveryUrl": { "Ref": "JwtDiscoveryUrl" }, "AllowedAudience": [{ "Ref": "JwtAudience" }], "AllowedScopes": [{ "Ref": "JwtScope" }]
+        } },
+        "RequestHeaderConfiguration": { "RequestHeaderAllowlist": ["Authorization", "Origin"] },
+        "EnvironmentVariables": {
+          "AWS_REGION": { "Ref": "AWS::Region" }, "AUTH_MODE": "jwt", "HOST": "0.0.0.0", "PORT": "8080",
+          "DYNAMODB_TABLE": { "Ref": "StateTable" }, "JWT_ISSUER": { "Ref": "JwtIssuer" }, "JWT_AUDIENCE": { "Ref": "JwtAudience" },
+          "JWT_JWKS_URL": { "Ref": "JwtJwksUrl" }, "JWT_REQUIRED_SCOPE": { "Ref": "JwtScope" }, "ALLOWED_ORIGINS": { "Ref": "FrontendOrigin" }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "RuntimeArn": { "Value": { "Ref": "Runtime" } },
+    "StateTableName": { "Value": { "Ref": "StateTable" } },
+    "ExecutionRoleArn": { "Value": { "Fn::GetAtt": ["ExecutionRole", "Arn"] } }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "YAMNet",
+  "source": "https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite",
+  "sha256": "4d8b4a53282dc83ef04e3e7dbc4fbc98082e34e44ed798e16c3a0cdd4c584faf",
+  "bytes": 4126810,
+  "runtime": "1.2.2",
+  "clinicalValidation": false,
+  "threshold": 0.8,
+  "thresholdStatus": "Frozen from 16 ESC-50 development clips before 16 held-out clips; engineering smoke evaluation only",
+  "windowSamples": 15600,
+  "hopSamples": 7680,
+  "sampleRate": 16000
+}

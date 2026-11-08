@@ -1,0 +1,53 @@
+{
+  "name": "nova-voice-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node --env-file-if-exists=.env scripts/start.mjs --watch",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env scripts/start.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "preflight": "node --env-file-if-exists=.env scripts/preflight.mjs",
+    "models": "node --env-file-if-exists=.env scripts/models.mjs",
+    "typecheck": "tsc --noEmit",
+    "provision": "node --env-file-if-exists=.env scripts/provision-carealong.mjs",
+    "prepare:audio": "node scripts/prepare-audio-assets.mjs",
+    "verify": "npm run check && npm run typecheck && npm test && npm run build",
+    "password": "node scripts/demo-password.mjs",
+    "reset": "node --env-file-if-exists=.env scripts/reset-carealong.mjs",
+    "test:live": "node scripts/live-check.mjs",
+    "test:voice": "node scripts/voice-check.mjs",
+    "test:browser": "node scripts/browser-check.mjs",
+    "test:acoustic": "node scripts/acoustic-check.mjs",
+    "prepare:checks": "node scripts/prepare-checks.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "3.1164.0",
+    "@aws-sdk/client-cognito-identity-provider": "3.1164.0",
+    "@aws-sdk/client-dynamodb": "3.1164.0",
+    "@aws-sdk/lib-dynamodb": "3.1164.0",
+    "@mediapipe/tasks-audio": "1.2.2",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@smithy/node-http-handler": "4.14.2",
+    "ajv": "8.20.0",
+    "jose": "6.2.15",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "ws": "8.22.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "7.0.2",
+    "vite": "7.3.7"
+  }
+}
