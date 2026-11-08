@@ -6,7 +6,7 @@ The CareAlong voice backend and its reference web interface: a local senior-care
 
 ## Start
 
-This directory is self-contained. The repository also contains the separate HospicePrint project; the `humanloop-ui` branch has a separate UI. No integration with that UI is claimed.
+This directory is self-contained. The repository also contains the separate HospicePrint project. The `../humanloop` senior voice screen is integrated with this backend; its nurse/care-team view is deferred. See `../humanloop/README.md` to run that interface.
 
 Node 24 and AWS CLI are required. In the **same terminal** that will start the backend, export fresh Workshop Studio temporary credentials for account **389415889552**, region **us-east-1**. Keep the session token as well as the access and secret keys. Do not use the unrelated default AWS account. Startup verifies the account and stops on a mismatch.
 
@@ -124,3 +124,26 @@ Resident fixtures, assignments, Cognito users/passwords and cloud resources rema
 ## Repository contents
 
 AWS credentials, Cognito configuration and passwords, generated audio/model binaries, dependencies, build output, transcripts, logs, screenshots and local test reports are excluded from Git. `npm run provision` creates the ignored cloud configuration and demo secrets for an authorized account; `npm run prepare:audio` downloads the checksum-verified model and copies the installed audio runtime. `VERIFICATION.md` describes checks performed in the original local workspace; its `data/` references are local artifacts, not files included in this repository.
+
+## Add the two patient profiles later
+
+The integrated senior view is in `../humanloop`. Copy `config/patient-profiles.example.json` to the ignored `.carealong-patient-profiles.json`. The two slots bind to the existing Margaret and Daniel demo identities; keep those IDs for now and provide preferred names, conditions and question plans when the profiles are available. `null` name/conditions leave the existing fixture values untouched. Do not commit populated profiles.
+
+Each supplied question has this shape (this illustrates the schema, not a disease-specific care protocol):
+
+```json
+{
+  "id": "daily-experience",
+  "condition": "Condition from the supplied profile",
+  "question": "Question from the supplied check-in plan",
+  "required": true
+}
+```
+
+Set the plan's `enabled` to `true` only after adding its questions and a version. Import using the authorized backend AWS credentials:
+
+```sh
+node scripts/apply-patient-profiles.mjs .carealong-patient-profiles.json
+```
+
+Start a fresh check-in after importing profiles. The importer validates the schema and existing resident IDs, checks the account, and atomically updates the bound profile records. The context tool reads only the current resident's plan and rechecks permission. Profile updates do not create tasks or change human confirmation requirements. Empty/invalid plans are treated as unconfigured; no required disease questions are manufactured. The current daily question pacing uses the model's session history; it is not a formal scored questionnaire or a persisted daily-completion report.

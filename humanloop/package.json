@@ -1,0 +1,34 @@
+{
+  "name": "humanloop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite",
+    "dev:server": "npm --prefix ../humanloop-backend start",
+    "build": "npm run prepare:audio && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "predev": "npm run prepare:audio",
+    "prepare:audio": "npm --prefix ../humanloop-backend run prepare:audio && node scripts/prepare-audio.mjs",
+    "start": "node scripts/start.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1164.0",
+    "@smithy/node-http-handler": "^4.14.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^10.0.7",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

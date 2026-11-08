@@ -1,3 +1,11 @@
+# HumanLoop senior voice integration
+
+The `humanloop-backend` branch combines the committed HumanLoop senior voice screen in [`humanloop/`](humanloop/README.md) with the authenticated Nova 2 Sonic pipeline in [`humanloop-backend/`](humanloop-backend/README.md). Resident sign-in opens directly to the animated voice companion. The nurse/care-team view is deferred. The two patient profiles and their disease-specific daily question sets can be populated using the backend profile template.
+
+See [`humanloop/README.md`](humanloop/README.md) for the integrated build/start commands. The earlier HospicePrint application remains below and in its existing directories.
+
+---
+
 # AgenticPrint for Hospice — Agentic Identity for Hospice Care
 
 AgenticPrint for Hospice is an identity and access layer for AI agents that work with patient records in a hospice. It covers the full chain:

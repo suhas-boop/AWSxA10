@@ -111,6 +111,7 @@ export class CareWorkflow extends CareService {
     }
     if (member.role === 'resident') {
       const rows = await this.store.query(residentPK(member.residentId));
+      actor.name = rows.find(r => r.sk === 'CONTEXT')?.preferred_name || actor.name;
       const runs = rows.filter(r => r.type === 'AgentRun' && r.actor === member.subject).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const run = runs[0] || null;
       const incident = run ? rows.find(r => r.sk === `INCIDENT#${run.incidentId}`) : null;

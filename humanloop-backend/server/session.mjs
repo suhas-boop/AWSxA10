@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventQueue } from './queue.mjs';
-import { event, startEvents, endEvents, toolResultEvents } from './protocol.mjs';
+import { event, startEvents, endEvents, toolResultEvents, textEvents } from './protocol.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const SYSTEM_PROMPT = `You are a helpful voice assistant. Speak naturally and concisely. Let the user interrupt.
@@ -9,9 +9,9 @@ Application-specific integrations have not been configured yet. Do not claim to 
 If asked to do something unavailable, explain that the integration needs to be configured. Never invent a tool result.`;
 
 export class SonicSession {
-  constructor({ transport, runner, emit, voice = 'tiffany', renewAfterMs = 420000, hardRenewMs = 465000, systemPrompt = SYSTEM_PROMPT, requiredTool, onFinalTurn, diagnose = () => {} }) {
+  constructor({ transport, runner, emit, voice = 'tiffany', renewAfterMs = 420000, hardRenewMs = 465000, systemPrompt = SYSTEM_PROMPT, requiredTool, onFinalTurn, initialPrompt, diagnose = () => {} }) {
     Object.assign(this, { transport, runner, emit, voice, renewAfterMs, hardRenewMs });
-    Object.assign(this, { systemPrompt, requiredTool, onFinalTurn, diagnose });
+    Object.assign(this, { systemPrompt, requiredTool, onFinalTurn, initialPrompt, diagnose });
     this.id = randomUUID();
     this.history = [];
     this.actions = [];
@@ -32,7 +32,16 @@ export class SonicSession {
       audioIds: new Set(), modelEvents: 0, inputFrames: 0, outputFrames: 0, suppressedFrames: 0 };
     this.connection = c;
     const systemPrompt = this.systemPrompt + (this.actions.length ? '\nPrior tool outcomes (do not repeat completed actions): ' + JSON.stringify(this.actions.slice(-30)) : '');
-    for (const item of startEvents({ ...c, voice: this.voice, systemPrompt, tools: this.runner.specs(), history: this.history, requiredTool: this.requiredTool })) c.queue.push(item);
+    // Bedrock history starts with USER and alternates roles. The application
+    // opening may produce ASSISTANT first; keep its provenance explicit while
+    // leaving the real transcript/history untouched.
+    const replay = [];
+    if (this.history[0]?.role === 'ASSISTANT') replay.push({ role: 'USER', text: 'Application context, not resident speech: resume the existing conversation. The following assistant words were already spoken. Do not repeat the greeting.' });
+    for (const turn of this.history) {
+      if (replay.at(-1)?.role === turn.role) replay.at(-1).text += '\n' + turn.text;
+      else replay.push({ ...turn });
+    }
+    for (const item of startEvents({ ...c, voice: this.voice, systemPrompt, tools: this.runner.specs(), history: replay, requiredTool: this.requiredTool })) c.queue.push(item);
     const openingTimeout = setTimeout(() => c.abort.abort(), 15000);
     let output;
     try { output = await this.transport.open(c.queue, c.abort.signal); }
@@ -51,6 +60,12 @@ export class SonicSession {
     if (!bytes.length || bytes.length > 3200 || bytes.length % 2) throw new Error('Invalid PCM audio frame');
     c.inputFrames++; c.lastInputAt = Date.now();
     c.queue.push(event('audioInput', { promptName: c.promptName, contentName: c.audioName, content: Buffer.from(bytes).toString('base64') }));
+    // Nova 2 cross-modal input supports model-first speech. Trigger only after
+    // capture is streaming, and never repeat the opening when a stream renews.
+    if (this.initialPrompt && !this.openingSent) {
+      this.openingSent = true;
+      for (const item of textEvents(c.promptName, 'USER', this.initialPrompt, true)) c.queue.push(item);
+    }
   }
   async read(c, output) {
     for await (const message of output) {
@@ -84,7 +99,8 @@ export class SonicSession {
           block.text += value.content;
           if (block.text.length > 16000) throw new Error('Transcript block too large');
           // Only final, actually-spoken assistant text is shown and carried across renewals.
-          if (block.stage === 'FINAL' || block.role === 'USER') this.emit({ type: 'transcript', id: value.contentId, role: block.role, text: block.text, final: false });
+          const applicationEcho = block.role === 'USER' && this.initialPrompt?.startsWith(block.text);
+          if (!applicationEcho && (block.stage === 'FINAL' || block.role === 'USER')) this.emit({ type: 'transcript', id: value.contentId, role: block.role, text: block.text, final: false });
         }
       }
     }
@@ -124,7 +140,7 @@ export class SonicSession {
       const value = message.contentEnd;
       if (value.stopReason === 'INTERRUPTED') this.interrupt(c, value.contentId);
       const block = c.blocks.get(value.contentId);
-      if (block?.text && (block.stage === 'FINAL' || block.role === 'USER') && ['USER', 'ASSISTANT'].includes(block.role)) {
+      if (block?.text && !(block.role === 'USER' && block.text === this.initialPrompt) && (block.stage === 'FINAL' || block.role === 'USER') && ['USER', 'ASSISTANT'].includes(block.role)) {
         if (block.role === 'USER' && this.onFinalTurn) { const started = Date.now(); await this.onFinalTurn({ text: block.text, id: value.contentId }); this.diagnose({ event: 'turn_saved', durationMs: Date.now() - started }); }
         this.history.push({ role: block.role, text: block.text });
         while (this.history.length > 60 || this.history.reduce((n, item) => n + item.text.length, 0) > 24000) this.history.shift();

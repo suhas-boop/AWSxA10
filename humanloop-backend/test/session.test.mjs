@@ -121,3 +121,34 @@ test('automatic renewal waits for an active model turn to finish', async t => {
   await until(() => transport.connections.length === 2);
   assert.ok(session.history.length === 0);
 });
+test('model-first greeting waits for capture, runs once and is not saved as resident speech', async t => {
+  const { session, transport, events } = setup(t);
+  const reported = []; session.initialPrompt = 'Application event: start the daily conversation.'; session.onFinalTurn = turn => reported.push(turn);
+  await session.start();
+  assert.equal(transport.connections[0].input.some(x => x.event.textInput?.content === session.initialPrompt), false);
+  session.audio(new Uint8Array(1024)); session.audio(new Uint8Array(1024));
+  await until(() => transport.connections[0].input.some(x => x.event.textInput?.content === session.initialPrompt));
+  const first = transport.connections[0].input;
+  const index = first.findIndex(x => x.event.textInput?.content === session.initialPrompt);
+  assert.equal(first[index - 1].event.contentStart.interactive, true);
+  assert.equal(first.filter(x => x.event.textInput?.content === session.initialPrompt).length, 1);
+  const output = transport.connections[0].output;
+  output.push({ contentStart: { contentId: 'echo', role: 'USER', type: 'TEXT' } });
+  output.push({ textOutput: { contentId: 'echo', content: session.initialPrompt } });
+  output.push({ contentEnd: { contentId: 'echo' } });
+  await until(() => session.connection.modelEvents >= 3);
+  await session.renew(); session.audio(new Uint8Array(1024));
+  await until(() => transport.connections[1].input.some(x => x.event.audioInput));
+  assert.equal(transport.connections[1].input.some(x => x.event.textInput?.content === session.initialPrompt), false);
+  assert.deepEqual(reported, []); assert.equal(events.some(e => e.type === 'transcript' && e.role === 'USER'), false);
+});
+test('renewal can replay an assistant-first greeting without fabricating resident history', async t => {
+  const { session, transport } = setup(t); await session.start();
+  session.history = [{ role: 'ASSISTANT', text: 'Hello.' }, { role: 'ASSISTANT', text: 'How was your day?' }, { role: 'USER', text: 'I enjoyed gardening.' }];
+  await session.renew();
+  await until(() => transport.connections[1].input.some(x => x.event.contentStart?.type === 'AUDIO'));
+  const starts = transport.connections[1].input.filter(x => x.event.contentStart?.type === 'TEXT').map(x => x.event.contentStart.role);
+  assert.deepEqual(starts, ['SYSTEM', 'USER', 'ASSISTANT', 'USER']);
+  assert.ok(transport.connections[1].input.some(x => x.event.textInput?.content === 'Hello.\nHow was your day?'));
+  assert.equal(session.history.length, 3); assert.equal(session.history.filter(x => x.role === 'USER').length, 1);
+});

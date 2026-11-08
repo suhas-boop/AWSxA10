@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+
+# Generated shared audio assets
+public/models/
+public/mediapipe/
+.npm-cache/
+data/
+test-results/
+playwright-report/

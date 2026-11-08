@@ -19,7 +19,7 @@ const identity = createIdentity(cloud, secrets, store);
 const service = new CareWorkflow({ store, verifyMachine: identity.machine, machineToken: identity.machineToken, machineClientId: cloud.machineClientId });
 const port = Number(process.env.PORT || 8080), host = process.env.HOST || '127.0.0.1';
 const origins = new Set((process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080').split(','));
-const root = fileURLToPath(new URL('../../dist/', import.meta.url));
+const root = process.env.CAREALONG_WEB_ROOT ? resolve(process.env.CAREALONG_WEB_ROOT) : fileURLToPath(new URL('../../dist/', import.meta.url));
 const clients = new Set(), sseClients = new Set();
 const ajv = new Ajv({ strict: true });
 const validators = new Map();

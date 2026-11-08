@@ -1,3 +1,4 @@
+import { dailyPlanContext } from './daily-checkin.mjs';
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import Ajv from 'ajv';
 import { RunLocks, Conflict } from './store.mjs';
@@ -196,8 +197,9 @@ export class CareService {
       incident = next; evidence.push(recorded);
     }
     const awaitingControls = incident?.clarification_needed && incident.clarification_attempts >= 2;
-    const questionMode = awaitingControls ? 'answer_controls' : !incident || ['dismissed', 'handed-off'].includes(incident.phase) ? 'conversation' : 'approved_question';
-    return { resident: run.alias, context: record ? { conditions: stale ? 'UNKNOWN: stale record' : record.conditions, medications: stale ? 'UNKNOWN: stale record' : record.medications,
+    const dailyCheckin = dailyPlanContext(record);
+    const questionMode = awaitingControls ? 'answer_controls' : !incident || ['dismissed', 'handed-off'].includes(incident.phase) ? (dailyCheckin.configured ? 'daily_checkin' : 'conversation') : 'approved_question';
+    return { resident: record?.preferred_name || run.alias, daily_checkin: dailyCheckin, context: record ? { conditions: stale ? 'UNKNOWN: stale record' : record.conditions, medications: stale ? 'UNKNOWN: stale record' : record.medications,
       source: record.source, verified_at: record.verified_at, source_ref: record.source_ref, stale, synthetic: true } : { status: 'UNKNOWN: context unavailable' },
       incident: incident ? { id: incident.id, state: incident.state, phase: incident.phase, route: incident.route, protocol_version: PROTOCOL,
         clarification_needed: !!incident.clarification_needed, clarification_attempts: incident.clarification_attempts || 0, severe_breathing: incident.severe_breathing ?? null } : null,
@@ -207,7 +209,7 @@ export class CareService {
       guidance: incident?.route === 'emergency' ? EMERGENCY : incident?.route === 'urgent' ? URGENT : null,
       instruction: (questionMode === 'answer_controls'
         ? 'The answer remains unconfirmed. Stop repeating or paraphrasing the clinical question. Once, offer the displayed Yes/No buttons or human help; then acknowledge and respond to the resident without restarting that question. Never infer an answer from silence or frustration. '
-        : questionMode === 'conversation' ? 'Respond naturally to what the resident just said. Do not repeatedly restart the daily check-in or ask questions already answered in conversation. '
+        : questionMode === 'daily_checkin' ? dailyCheckin.instruction + ' ' : questionMode === 'conversation' ? 'Respond naturally to what the resident just said. Do not repeatedly restart the daily check-in or ask questions already answered in conversation. '
         : 'Acknowledge the resident\'s answer, then use only the next approved clinical question. A denial of severe breathing difficulty does not deny discomfort or other symptoms. ')
         + 'Do not diagnose or recommend medication changes. A draft requires a separate human confirmation button. Tool failure is unknown context, never proof of absence.' };
   }

@@ -229,3 +229,15 @@ test('consent withdrawal and assignment removal deny the next protected action',
   await ctx.store.put({ ...owner, version: owner.version + 1, assignments: [] });
   assert.equal((await ctx.service.agentCall(run.id, 'create_review_task', confirmation)).code, 'RESIDENT_SCOPE_DENIED');
 });
+test('daily question plans are returned only from the authorized resident profile', async () => {
+  const { service, store, person } = await setup();
+  const record = await store.get(residentPK('margaret'), 'CONTEXT');
+  await store.put({ ...record, daily_checkin: { version: 'synthetic-plan-v1', enabled: true, questions: [{ id: 'experience', condition: 'synthetic condition', question: 'How has this affected your day?', required: true }] } });
+  const first = await service.startRun(person('margaret'), true), second = await service.startRun(person('daniel'), true);
+  const a = await service.agentCall(first.id, 'get_checkin_context', {}), b = await service.agentCall(second.id, 'get_checkin_context', {});
+  assert.equal(a.question_mode, 'daily_checkin'); assert.equal(a.daily_checkin.questions[0].id, 'experience');
+  assert.equal(b.daily_checkin.configured, false); assert.equal(b.daily_checkin.questions.length, 0);
+  await service.revoke(person('admin'), first.id, 'get_checkin_context');
+  const denied = await service.agentCall(first.id, 'get_checkin_context', {});
+  assert.equal(denied.code, 'GRANT_REVOKED'); assert.equal(denied.daily_checkin, undefined);
+});
