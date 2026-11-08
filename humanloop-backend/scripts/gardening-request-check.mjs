@@ -7,13 +7,14 @@ import { resolve } from 'node:path';
 const origin = 'http://127.0.0.1:8080';
 await mkdir('data/gardening-request', { recursive: true });
 const chunks = [Buffer.alloc(32000 * 18)];
-for (const [i, line] of ['Uh can you ask the caregiver to help me', 'with gardening?'].entries()) {
+const lines = ['I um', 'can somebody come and help me out uh', 'with gardening?'];
+for (const [i, line] of lines.entries()) {
   const file = `data/gardening-request/part-${i}`;
   execFileSync('say', ['-o', file + '.aiff', line]);
   execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', file + '.aiff', file + '.wav']);
   const wav = await readFile(file + '.wav');
   for (let p = 12; p < wav.length;) { const n = wav.readUInt32LE(p + 4); if (wav.toString('ascii', p, p + 4) === 'data') { chunks.push(wav.subarray(p + 8, p + 8 + n)); break; } p += 8 + n + n % 2; }
-  chunks.push(Buffer.alloc(i ? 32000 * 180 : 32000 * 0.3));
+  chunks.push(Buffer.alloc(i === lines.length - 1 ? 32000 * 180 : 32000 * 0.3));
 }
 const pcm = Buffer.concat(chunks), header = Buffer.alloc(44);
 header.write('RIFF'); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVEfmt ', 8); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22); header.writeUInt32LE(16000, 24); header.writeUInt32LE(32000, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
@@ -56,6 +57,9 @@ try {
   await expect(card.getByText('Reply saved', { exact: true })).toBeVisible({ timeout: 20000 });
   await expect.poll(async () => resident.evaluate(n => window.__gardening.turns.slice(n).filter(t => t.role === 'ASSISTANT').map(t => t.text).join(' '), before), { timeout: 60000 }).toMatch(/Sam.*courtyard|courtyard.*Sam/is);
   report.metrics = await resident.evaluate(() => window.__gardening);
+  const spoken = report.metrics.turns.filter(t => t.role === 'ASSISTANT').map(t => t.text).join(' ');
+  expect(spoken).not.toMatch(/exact phrase|please say|thank you for saying it clearly|\bsoon\b|\bshortly\b|they.?ll.*get back|you.?ll hear/i);
+  report.checks.push('Natural somebody request accepted without prescribed wording or an invented response-time expectation');
   expect(report.metrics.audio).toBeGreaterThan(0); expect(report.metrics.errors).toEqual([]); expect(report.errors).toEqual([]);
   report.checks.push('Sam’s saved reply is automatically fetched and spoken through the same live conversation'); report.passed = true;
 } finally {

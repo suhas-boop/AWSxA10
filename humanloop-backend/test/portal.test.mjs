@@ -82,6 +82,20 @@ test('a gardening request split across final speech blocks reaches assigned staf
   assert.equal((await portal.call(run.id, 'request_caregiver_help', { quote })).request_id, result.request_id);
   assert.equal((await portal.snapshot(person('sam'))).requests.length, 1);
 });
+test('natural somebody and anybody requests do not require prescribed words', async t => {
+  const { portal, run, person } = await setup(t);
+  for (const quote of ['i um can somebody come and help me out uh with gardening', 'could anybody help me with gardening', 'can um someone please help me with gardening']) {
+    const split = quote.lastIndexOf('with');
+    await portal.recordSpeech(run.id, quote.slice(0, split));
+    await portal.recordSpeech(run.id, quote.slice(split), quote.slice(0, split));
+    const result = await portal.call(run.id, 'request_caregiver_help', { quote });
+    assert.equal(result.ok, true, quote);
+    assert.match(result.response_instruction, /Do not predict a response time/);
+    assert.equal(result.message, 'Your request is in the care team inbox. Staff have not acknowledged it yet.');
+    const request = (await portal.snapshot(person('sam'))).requests.find(r => r.id === result.request_id);
+    assert.equal(request.quote, quote);
+  }
+});
 test('pause stops voice and prevents a new run; caregiver cannot edit policy', async t => {
   const { portal, care, run, person } = await setup(t); let stopped = false;
   care.voiceStops.set(run.id, async () => { stopped = true; });
@@ -114,7 +128,7 @@ test('registered identity survives bridge restart using persisted backend key', 
 });
 test('negated, hypothetical and unrequested help is not sent to the care team', async t => {
   const { portal, run, store } = await setup(t);
-  for (const quote of ["I don't need help from staff.", 'If I need help I will ask a caregiver.', 'The nurse helped me yesterday.']) {
+  for (const quote of ["I don't need help from staff.", 'If I need help I will ask a caregiver.', 'The nurse helped me yesterday.', 'Hypothetically can somebody come and help me out with gardening', 'Can somebody help me with gardening? No need, do not send that.']) {
     await portal.recordSpeech(run.id, quote);
     assert.equal((await portal.call(run.id, 'request_caregiver_help', { quote })).code, 'EXPLICIT_REQUEST_REQUIRED');
   }

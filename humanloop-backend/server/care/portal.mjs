@@ -9,7 +9,7 @@ const put = (item, expectedVersion = null) => ({ kind: 'put', item, expectedVers
 const check = (item, extra = {}) => ({ kind: 'check', pk: item.pk, sk: item.sk, expectedVersion: item.version, ...extra });
 const normalize = text => String(text).toLowerCase().replaceAll('’', "'").replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim();
 const validators = new Map(companionTools.map(t => [t.name, new Ajv({ strict: true }).compile(t.schema)]));
-const explicitHelp = quote => /\b(please\s+(ask|send|tell|contact|get|help)|(?:can|could|would|will)\s+(?:you|someone|a caregiver|a nurse|staff)\b|i\s+(?:need|want|would like)\s+(?:some |a |to )?(?:help|speak|talk|see|caregiver|nurse))/.test(quote) && !/\b(don't|do not|never|no need|don't need|do not need|wouldn't|would not)\b/.test(quote) && !/\b(if|hypothetically|pretend|example)\b/.test(quote);
+const explicitHelp = quote => /\b(please\s+(ask|send|tell|contact|get|help)|(?:can|could|would|will)\s+(?:(?:uh|um|please)\s+)*(?:you|someone|somebody|anyone|anybody|a caregiver|a nurse|staff)\b|i\s+(?:need|want|would like)\s+(?:some |a |to )?(?:help|speak|talk|see|caregiver|nurse))/.test(quote) && !/\b(don't|do not|never|no need|don't need|do not need|wouldn't|would not)\b/.test(quote) && !/\b(if|hypothetically|pretend|example)\b/.test(quote);
 const policyKey = rid => `COMPANION_POLICY#${rid}`;
 
 export class StaffPortal {
@@ -137,7 +137,9 @@ export class StaffPortal {
           if (old) { await this.store.transact([...this.guards(state), check(old)]); return { ok: true, request_id: old.id, status: old.status, delivery: 'STORED_IN_STAFF_INBOX', replayed: true }; }
           const request = { pk: state.run.pk, sk, id, version: 1, residentId: state.run.residentId, resident: state.profile.name, run_id: runId, quote: args.quote.trim(), status: 'NEEDS_ATTENTION',
             created_at: utc(), consent_version: state.consent.version, acknowledged_by: null, reply: null, simulation: true, delivery: 'STORED_IN_STAFF_INBOX' };
-          extra.push(put(request)); Object.assign(result, { request_id: id, status: request.status, delivery: request.delivery, message: 'Your explicit request is in the assigned care team inbox. Acknowledgment is pending.', response_instruction: 'Say the request is in the inbox and acknowledgment is pending. No visit or reply time is promised. Do not say staff will reply soon.' });
+          extra.push(put(request)); Object.assign(result, { request_id: id, status: request.status, delivery: request.delivery,
+            message: 'Your request is in the care team inbox. Staff have not acknowledged it yet.',
+            response_instruction: 'Say only the two sentences in message as the delivery confirmation. Do not predict a response time or add a promise that staff will see it, reply, get back to the resident, or visit. Only share a time from an actual saved staff reply.' });
         }
         if (name === 'get_request_status') {
           const request = await this.store.get(state.run.pk, `SOCIAL_REQUEST#${args.request_id}`);
@@ -149,7 +151,7 @@ export class StaffPortal {
         return { ok: true, ...result, agentprint: { agent_id: decision.identity.agent_id, print_id: decision.identity.print_id, grant_session: decision.grant_session } };
       } catch (error) {
         if (state && decision?.allowed) await this.decision(state.run, actual, { allowed: false, reason: error.code === 'EXPLICIT_REQUEST_REQUIRED' ? 'An explicit resident request is required' : 'Access or state changed before completion; result is unconfirmed', rule: error.code || 'state-guard', identity: decision.identity, policy_version: state.policy.version }).catch(() => {});
-        return { ok: false, code: error.code || 'EXECUTION_FAILED', status: 'UNKNOWN', reason: error.code === 'EXPLICIT_REQUEST_REQUIRED' ? 'Ask the resident to state the help they want. A request has not been confirmed.' : 'The action could not be confirmed. Do not claim success.' };
+        return { ok: false, code: error.code || 'EXECUTION_FAILED', status: 'UNKNOWN', reason: error.code === 'EXPLICIT_REQUEST_REQUIRED' ? 'The request could not be verified against recent resident speech. No request was sent. If the intent is unclear, ask one natural clarification; never require an exact phrase or ask the resident to repeat prescribed words.' : 'The action could not be confirmed. Do not claim success.' };
       }
     });
   }
