@@ -17,6 +17,7 @@ import { companionTools, COMPANION_PROMPT } from './companion-tools.mjs';
 import { CARE_PROMPT } from './voice.mjs';
 import { toolDefinitions } from './service.mjs';
 import { createCompanionVoice } from './companion-voice.mjs';
+import { demoPrefillAllowed } from './demo-prefill.mjs';
 
 const cloud = JSON.parse(await readFile('.carealong-cloud.json', 'utf8'));
 const secrets = JSON.parse(await readFile('.carealong-secrets.json', 'utf8'));
@@ -65,7 +66,14 @@ const server = http.createServer(async (request, response) => {
   try {
     if (request.headers.origin && !origins.has(request.headers.origin)) throw new CareError('AUTH_INVALID');
     if (path === '/ping') return json(200, { status: clients.size ? 'HealthyBusy' : 'Healthy' });
-    if (path === '/api/config') return json(200, { product: 'CareAlong', region: cloud.region, account: cloud.account, identities: people.map(({ username, name, role }) => ({ username, name, role })), synthetic: true });
+    const demoPrefill = demoPrefillAllowed(request, { enabled: process.env.CAREALONG_DEMO_PASSWORD_PREFILL === '1', host });
+    if (path === '/api/config') return json(200, { product: 'CareAlong', region: cloud.region, account: cloud.account, identities: people.map(({ username, name, role }) => ({ username, name, role })), synthetic: true, demo_password_prefill: demoPrefill });
+    if (path === '/api/demo-password' && request.method === 'POST') {
+      if (!demoPrefill) return json(404, { message: 'Not available.' });
+      const { username } = validate(await bodyOf(request), { username: string });
+      if (!people.some(p => p.username === username) || !Object.hasOwn(secrets.passwords || {}, username)) return json(404, { message: 'Not available.' });
+      return json(200, { password: secrets.passwords[username] });
+    }
     if (path === '/api/login' && request.method === 'POST') {
       const key = request.socket.remoteAddress; let limit = loginLimits.get(key);
       if (!limit || Date.now() > limit.until) { limit = { count: 0, until: Date.now() + 60000 }; loginLimits.set(key, limit); }
