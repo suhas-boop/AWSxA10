@@ -10,7 +10,7 @@ const contexts = [], errors = [], checks = [], latencies = [];
 async function login(user) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, permissions: ['microphone'], recordVideo: { dir: 'data/rehearsal', size: { width: 1440, height: 1100 } } }); contexts.push(context);
   const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
-  await page.goto(origin); await page.getByLabel('Who is signing in?').selectOption(user); await page.getByLabel('Password', { exact: true }).fill(passwords[user]);
+  await page.goto(origin + '/#/check-in'); await page.getByLabel('Who is signing in?').selectOption(user); await page.getByLabel('Password', { exact: true }).fill(passwords[user]);
   await page.getByRole('button', { name: 'Sign in securely' }).click(); await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 20000 }); return page;
 }
 function passed(name) { checks.push(name); console.log(`PASS ${name}`); }

@@ -37,7 +37,7 @@ await page.addInitScript(() => {
 let runId;
 const metrics = () => page.evaluate(() => { const { tracks, ...rest } = window.__voiceCheck; return { ...rest, liveTracks: tracks.filter(t => t.readyState === 'live').length }; });
 try {
-  await page.goto(origin); await page.getByLabel('Who is signing in?').selectOption('daniel'); await page.getByLabel('Password', { exact: true }).fill(passwords.daniel); await page.getByRole('button', { name: 'Sign in securely' }).click();
+  await page.goto(origin + '/#/check-in'); await page.getByLabel('Who is signing in?').selectOption('daniel'); await page.getByLabel('Password', { exact: true }).fill(passwords.daniel); await page.getByRole('button', { name: 'Sign in securely' }).click();
   await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeVisible({ timeout: 20000 });
   await expect(page.getByRole('button', { name: 'Start voice', exact: true })).toBeEnabled();
   await expect(page.locator('footer.stage-controls')).toHaveCount(0);

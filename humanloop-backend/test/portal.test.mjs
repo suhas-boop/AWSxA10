@@ -66,6 +66,22 @@ test('only explicit speech creates a request; assigned staff response is returne
   assert.equal(reply.reply.author, 'Sam Rivera'); assert.equal(reply.reply.text, 'I can meet you in the lobby at 2:45.');
   assert.doesNotMatch(JSON.stringify((await portal.snapshot(person('admin'))).decisions), /lobby|2:45|Please ask/);
 });
+test('a gardening request split across final speech blocks reaches assigned staff with the full quote', async t => {
+  const { portal, run, person } = await setup(t);
+  const first = 'uh can you ask the caregiver to help me', last = 'with gardening';
+  await portal.recordSpeech(run.id, first);
+  await portal.recordSpeech(run.id, last, first);
+  const quote = `${first} ${last}`;
+  const result = await portal.call(run.id, 'request_caregiver_help', { quote });
+  assert.equal(result.ok, true);
+  const requests = (await portal.snapshot(person('sam'))).requests;
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].quote, quote);
+  assert.equal(requests[0].status, 'NEEDS_ATTENTION');
+  assert.equal((await portal.snapshot(person('lee'))).requests.length, 0);
+  assert.equal((await portal.call(run.id, 'request_caregiver_help', { quote })).request_id, result.request_id);
+  assert.equal((await portal.snapshot(person('sam'))).requests.length, 1);
+});
 test('pause stops voice and prevents a new run; caregiver cannot edit policy', async t => {
   const { portal, care, run, person } = await setup(t); let stopped = false;
   care.voiceStops.set(run.id, async () => { stopped = true; });

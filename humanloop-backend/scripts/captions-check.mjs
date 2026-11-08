@@ -23,7 +23,7 @@ await page.routeWebSocket('**/ws?*', ws => {
 const send = (i) => socket.send(JSON.stringify({ type: 'transcript', id: `fixture-${i}`, role: i % 2 ? 'ASSISTANT' : 'USER', text: `Synthetic caption ${i}. This paragraph exercises scrolling during a continuing conversation.`, final: true }));
 const gap = () => page.locator('.transcript').evaluate(p => p.scrollHeight - p.scrollTop - p.clientHeight);
 try {
-  await page.goto(origin); await page.getByLabel('Who is signing in?').selectOption('robert');
+  await page.goto(origin + '/#/check-in'); await page.getByLabel('Who is signing in?').selectOption('robert');
   await page.getByLabel('Password', { exact: true }).fill(passwords.robert);
   await page.getByRole('button', { name: 'Sign in securely' }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 20000 });

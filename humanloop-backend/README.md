@@ -173,3 +173,5 @@ The activity feed distinguishes **gateway decisions**, **staff policy changes**,
 ### Local demo password prefill
 
 Set `CAREALONG_DEMO_PASSWORD_PREFILL=1` in the ignored backend `.env` and restart to prefill the selected synthetic user's sign-in password. This is off by default and works only with a loopback listener and direct local requests. The password comes from the ignored `.carealong-secrets.json`; it is not bundled into frontend assets. Normal Cognito authentication still runs when Sign in is clicked. Remove the flag or set it to `0` and restart to disable prefill.
+
+The main HumanLoop user URL (`/`, also `#/companion`) opens the everyday companion with caregiver-help tools. Open `#/check-in` for the separately authorized clinical daily check-in. Use `#/staff` for Sam’s live request inbox.

@@ -29,13 +29,13 @@ npm start
 
 To develop the UI, keep the backend running on port 8080, then run `npm run dev` in this directory. Vite on **http://127.0.0.1:5173** proxies `/api` and authenticated `/ws` to the backend.
 
-Sign in with a resident identity such as Margaret. In the backend directory, `npm run password -- margaret` copies that local demonstration password. Staff accounts do not open the senior view. Tap the companion to start the check-in with local sound analysis, and allow microphone access. Tap it again to stop. The senior view has no bottom control panel.
+Sign in with a resident identity such as Margaret. In the backend directory, `npm run password -- margaret` copies that local demonstration password. Staff accounts do not open the senior view. Tap the companion or the microphone button to start the everyday conversation, and allow microphone access. Tap again to stop. For the disease-specific check-in with local sound analysis, open `#/check-in`.
 
 ## Scope and behavior
 
 - Only explicit start activates the microphone; End check-in releases capture and closes the server run. Unmounting the screen also stops capture.
 - Captions update by content ID, automatically follow new speech, and allow scrolling back. Reconnect preserves the current run and transcript.
-- The companion itself is the accessible start/stop control. The bottom toolbar, typed composer and jump-to-latest button are removed; captions remain scrollable.
+- The companion and the bottom microphone button start/stop voice. Captions remain scrollable. The imported feeling, camera, typing and send controls are visual placeholders.
 - The local sound detector produces tentative observations, not confirmed patient symptoms.
 - Ordinary care requests require resident review and confirmation. Maggie and Bob have explicit fictional care plans that automatically create simulated inbox alerts for reported changes. Receipts are labeled simulated and never imply a real call or a nurse on the way.
 - The former UI branch's standalone voice server, browser speech fallback, photo features, home/routine pages and nurse mock are retained as source history but are not wired into this senior experience. Run the scripts above; do not start `server/index.js` for this integration.
@@ -60,8 +60,8 @@ The model-first opening uses [Nova 2 Sonic cross-modal input](https://docs.aws.a
 ## Companion identity and the staff loop
 
 - `http://127.0.0.1:8080/#/staff`: choose Sam for the assigned caregiver overview or Alex for **Permissions & activity**. Passwords remain in the ignored backend secrets file; use `npm run password -- sam` or `-- admin` from the backend directory.
-- `http://127.0.0.1:8080/#/companion`: everyday companion conversation with shared activities, consent-filtered attendance, approved reminders and explicit caregiver requests. No clinical tool grants or local sound analysis in this workflow.
-- `http://127.0.0.1:8080/`: existing disease-specific clinical check-in, with Maggie/Bob’s supplied fictional care plans.
+- `http://127.0.0.1:8080/` (also `#/companion`): everyday companion conversation with shared activities, consent-filtered attendance, approved reminders and explicit caregiver requests. No clinical tool grants or local sound analysis in this workflow.
+- `http://127.0.0.1:8080/#/check-in`: disease-specific clinical check-in, with Maggie/Bob’s supplied fictional care plans.
 
 For the live demo, use separate browser tabs (each has its own sessionStorage login). As Maggie, ask “Is Rose going to bingo tomorrow?”, then “Please ask a caregiver to help me get to bingo tomorrow.” In Sam’s staff inbox, write a reply. The active companion fetches and speaks the actual saved reply. In Alex’s portal, turn off **Check shared attendance** and ask the companion to check again. The next gateway call is denied, including when it reuses the same signed grant. Asking for another resident’s medical record or staff privileges produces a separate denied access decision. Pause stops active sessions and prevents new ones. Re-enable permissions after the demonstration.
 

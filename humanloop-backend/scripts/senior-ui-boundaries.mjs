@@ -28,7 +28,7 @@ await page.route('**/api/**', async route => {
 });
 await page.routeWebSocket('**/ws?*', ws => { socket = ws; setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); ws.onMessage(m => { if (typeof m === 'string' && JSON.parse(m).type === 'reconnect') { ws.send(JSON.stringify({ type: 'status', status: 'renewing' })); setTimeout(() => ws.send(JSON.stringify({ type: 'status', status: 'listening' })), 100); } }); });
 try {
-  await page.goto('http://127.0.0.1:8080'); await page.getByLabel('Password', { exact: true }).fill('test-only'); await page.getByRole('button', { name: 'Sign in securely' }).click();
+  await page.goto('http://127.0.0.1:8080/#/check-in'); await page.getByLabel('Password', { exact: true }).fill('test-only'); await page.getByRole('button', { name: 'Sign in securely' }).click();
   await expect(page.locator('footer.stage-controls')).toHaveCount(0);
   await expect(page.getByRole('checkbox')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Human help' })).toHaveCount(0);
